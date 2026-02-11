@@ -1,0 +1,35 @@
+# Demo configuration for streaming signal decomposition
+
+# Signal parameters
+signal:
+  fs: 100.0              # Sampling frequency (Hz)
+  duration: 10.0         # Signal duration (seconds)
+  noise_level: 0.1       # Standard deviation of white noise
+
+# Window parameters
+window:
+  W: 200                 # Window length (samples)
+  stride: 50             # Stride between windows (samples)
+
+# Embedding parameters
+embedding:
+  L: 100                 # Hankel embedding dimension (typically W/2)
+
+# Engine parameters
+engine:
+  type: "ssd"            # "ssd" or "ssa"
+  r_ssa: 5               # Number of components for SSA
+  M_ssd: 5               # Number of components for SSD
+  fmin: 0.5              # Minimum frequency for SSD (Hz, optional)
+  fmax: 20.0             # Maximum frequency for SSD (Hz, optional)
+
+# Tracking parameters
+tracking:
+  overlap_len: 150       # Overlap length for matching (typically W - stride)
+  similarity_threshold: 0.3  # Minimum similarity for valid match
+  freq_penalty_weight: 0.0    # Weight for frequency penalty (0 = disabled)
+
+# Output parameters
+output:
+  dir: "outputs"         # Output directory
+  seed: 42               # Random seed for reproducibility

@@ -1,0 +1,1 @@
+"""Synthetic signal generation experiments."""
