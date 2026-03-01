@@ -3,27 +3,28 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "streamssd"
+name = "streaming-signal-decomposition-rtda"
 version = "0.1.0"
-description = "Streaming Signal Decomposition with SSD (Singular Spectrum Decomposition)"
+description = "Streaming Signal Decomposition with SSD for Real-Time Data Analysis"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "pandas>=2.0.0",
-    "matplotlib>=3.7.0",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "matplotlib>=3.8",
+    "scikit-learn>=1.4",
     "pyyaml>=6.0",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
+    "pytest>=8.0",
 ]
 
-[tool.setuptools]
-packages = ["streamssd", "streamssd.engines", "experiments"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "experiments*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,25 @@
+signal:
+  type: chirp_plus_sinusoid
+  N: 30000
+  fs: 1000.0
+  f_sin: 50.0
+  f_start: 10.0
+  f_end: 150.0
+  snr_db: 20.0
+
+streaming:
+  window_len: 500
+  stride: 50
+  max_components: 4
+
+ssd:
+  nmse_threshold: 0.01
+  max_iter: 20
+
+matcher:
+  distance: d_corr
+  freq_weight: 0.0
+
+output:
+  save_trajectories: true
+  save_metrics: true

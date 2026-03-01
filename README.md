@@ -1,159 +1,59 @@
-# Streaming Signal Decomposition (StreamSSD)
+# Streaming Signal Decomposition for Real-Time Data Analysis
 
-A reproducible Python framework for streaming signal decomposition with **SSD (Singular Spectrum Decomposition)** as the main algorithm, based on Bonizzi et al. 2014. The framework supports sliding-window decomposition with component tracking and consistency metrics across consecutive windows.
-
-## Features
-
-- **SSD Engine**: Iterative extraction of narrowband oscillatory components using SSA-like embedding
-- **SSA Baseline**: Classical batch SSA for comparison
-- **Component Tracking**: Hungarian assignment for matching components across windows
-- **Consistency Metrics**: Cross-window correlation, L2 difference, energy delta, frequency delta
-- **Reproducible**: Fixed seeds, config-driven runs, deterministic outputs
-- **End-to-End Demo**: One command runs the full pipeline
+A Python framework that adapts Singular Spectrum Decomposition (SSD) — an
+iterative, fully-automated SSA-based method — to operate on streaming time
+series via a sliding-window framework with principled component matching
+across windows. Developed as part of a bachelor thesis at DACS, Maastricht
+University (Spring 2026).
 
 ## Installation
 
 ```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install package in editable mode
-pip install -e .
-
-# Install development dependencies (optional, for tests)
-pip install -e ".[dev]"
+pip install -r requirements.txt
 ```
 
-## Quick Start
+## Quickstart
 
-Run the end-to-end demo:
+Run the baseline experiment (chirp + sinusoid, 30 000 samples at 1 kHz):
 
 ```bash
-python scripts/run_demo.py --config configs/demo.yaml
+python experiments/run_experiment.py \
+    --config experiments/configs/baseline.yaml \
+    --output-dir results/baseline
 ```
 
-This will:
-1. Generate a synthetic signal (trend + sinusoids + chirp + noise)
-2. Extract sliding windows
-3. Decompose each window using SSD (or SSA)
-4. Track components across consecutive windows
-5. Compute consistency metrics
-6. Save results to `outputs/`:
-   - `metrics.csv`: Per-window matched component metrics
-   - `tracks.json`: Component track assignments over time
-   - `signal_and_components.png`: Original signal and decomposition visualization
-   - `stability_metrics.png`: Time-series of stability metrics
-
-## Repository Structure
-
-```
-streamssd/
-  __init__.py
-  window.py                # Streaming buffer & window extraction
-  embed.py                 # Hankel embedding utilities
-  reconstruct.py           # Diagonal averaging (hankelization)
-  tracking.py              # Component alignment + Hungarian assignment
-  metrics.py               # Cross-window consistency metrics
-  utils.py                 # Seed, logging, helpers
-  engines/
-    __init__.py
-    base.py                # Engine interface and dataclasses
-    ssa_batch.py           # SSA baseline engine
-    ssd_bonizzi.py         # SSD engine (main focus)
-
-configs/
-  demo.yaml                # Demo configuration
-
-experiments/
-  synthetic.py             # Synthetic signal generators
-
-scripts/
-  run_demo.py              # End-to-end demo script
-  run_benchmark.py         # Benchmark scaffold (placeholder)
-
-tests/
-  test_embed.py            # Tests for embedding
-  test_reconstruct.py      # Tests for reconstruction
-  test_tracking.py         # Tests for tracking
-  test_metrics.py          # Tests for metrics
-```
-
-## Configuration
-
-Edit `configs/demo.yaml` to customize:
-
-- **Signal parameters**: Sampling frequency, duration, noise level
-- **Window parameters**: Window length (W), stride (s)
-- **Embedding**: Hankel dimension (L)
-- **Engine**: Type (ssd/ssa), number of components, frequency bounds
-- **Tracking**: Overlap length, similarity threshold
-- **Output**: Output directory, random seed
-
-## Running Tests
+Run the test suite:
 
 ```bash
-pytest tests/
+pytest tests/ -v
 ```
 
-## Engine Interface
+## Module Overview
 
-All engines implement the `BaseEngine` interface:
+| Module | Purpose |
+|---|---|
+| `src/ssd/core.py` | Full SSD algorithm (Bonizzi et al. 2014) |
+| `src/ssd/ssa.py` | Base SSA, autoSSA with hierarchical grouping |
+| `src/ssd/svd_update.py` | Rank-1 USSA update skeleton (stub) |
+| `src/streaming/window_manager.py` | Circular buffer + stride logic |
+| `src/streaming/component_matcher.py` | Hungarian matching across windows |
+| `src/streaming/trajectory_store.py` | Rolling component trajectory management |
+| `src/metrics/similarity.py` | d_corr, d_freq, subspace_angle, w_correlation |
+| `src/metrics/stability.py` | QRF, frequency drift, energy continuity, NMSE |
+| `experiments/synthetic/generators.py` | Synthetic signal generators |
+| `experiments/run_experiment.py` | CLI entry point for experiments |
 
-```python
-from streamssd.engines import SSDBonizziEngine
+## Algorithm References
 
-engine = SSDBonizziEngine(L=100, M=5, fmin=0.5, fmax=20.0)
-result = engine.fit_window(x_window, fs=100.0)
+Bonizzi, P., Karel, J. M. H., Meste, O., & Peeters, R. L. M. (2014).
+Singular spectrum decomposition: A new method for time series
+decomposition. *Advances in Adaptive Data Analysis*, 6(04), 1450011.
 
-# result.components: list of time-domain components
-# result.residual: residual signal
-# result.meta: metadata (frequencies, scores, etc.)
-```
+Harmouche, J., Fourer, D., Auger, F., Borgnat, P., & Flandrin, P.
+(2017). The sliding singular spectrum analysis: A data-driven
+nonstationary signal decomposition tool. *IEEE Transactions on Signal
+Processing*, 66(1), 251–263.
 
-## SSD Algorithm
-
-The SSD engine implements an iterative extraction procedure:
-
-1. Start with `residual = x_window`
-2. For each component (m = 1..M):
-   - Embed residual into Hankel matrix
-   - Compute SVD
-   - Evaluate candidate components and select the one with highest narrowbandedness score
-   - Reconstruct selected component via diagonal averaging
-   - Subtract from residual (deflation)
-3. Return M components and final residual
-
-The narrowbandedness score is computed as `peak_power / total_power` in the frequency domain, favoring components with concentrated spectral energy.
-
-## Component Tracking
-
-Components are matched across consecutive windows using:
-- **Similarity matrix**: Normalized correlation on overlap region
-- **Hungarian assignment**: Optimal matching to maximize total similarity
-- **Sign correction**: Automatic sign flipping to maintain consistency
-
-## Metrics
-
-For each matched component pair, the following metrics are computed:
-- **corr**: Sign-invariant normalized correlation
-- **overlap_l2**: Normalized L2 difference on overlap
-- **energy_delta**: Relative energy change
-- **freq_delta**: Difference in FFT peak frequency
-
-## Requirements
-
-- Python 3.11+
-- numpy >= 1.24.0
-- scipy >= 1.10.0
-- pandas >= 2.0.0
-- matplotlib >= 3.7.0
-- pyyaml >= 6.0
-
-## License
-
-This project is provided as-is for research purposes.
-
-## References
-
-- Bonizzi, P., et al. (2014). "Singular Spectrum Decomposition: A new method for time series decomposition." *Advances in Adaptive Data Analysis*, 6(4).
+Saeed, M., & Alty, S. R. (2020). USSA: A unified singular spectrum
+analysis framework with application to real-time data. In *Proc. IEEE
+ICASSP 2020* (pp. 4837–4841).

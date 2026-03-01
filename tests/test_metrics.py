@@ -1,55 +1,70 @@
-"""Tests for consistency metrics."""
+"""Tests for src.metrics.similarity and src.metrics.stability."""
+
+from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from streamssd.metrics import compute_pair_metrics
+from src.metrics.similarity import d_corr, d_freq, subspace_angle, w_correlation
+from src.metrics.stability import frequency_drift, qrf
 
 
-def test_compute_pair_metrics_identical():
-    """Test metrics for identical components."""
-    comp_k = np.sin(np.linspace(0, 4 * np.pi, 100))
-    comp_k1 = np.sin(np.linspace(0, 4 * np.pi, 100))
-    
-    metrics = compute_pair_metrics(comp_k, comp_k1, overlap_len=100, fs=1.0)
-    
-    assert metrics["corr"] > 0.99
-    assert metrics["overlap_l2"] < 0.1
-    assert metrics["energy_delta"] < 0.1
-    assert metrics["freq_delta"] is not None
+class TestDCorr:
+    """Tests for the normalised inner-product distance."""
+
+    def test_d_corr_identical(self) -> None:
+        x = np.sin(2.0 * np.pi * 5.0 * np.arange(200) / 200.0)
+        assert d_corr(x, x) == pytest.approx(0.0, abs=1e-10)
+
+    def test_d_corr_orthogonal(self) -> None:
+        t = np.arange(1000) / 1000.0
+        s = np.sin(2.0 * np.pi * t)
+        c = np.cos(2.0 * np.pi * t)
+        assert d_corr(s, c) == pytest.approx(1.0, abs=0.05)
+
+    def test_d_corr_range(self) -> None:
+        rng = np.random.default_rng(0)
+        for _ in range(50):
+            a = rng.standard_normal(100)
+            b = rng.standard_normal(100)
+            val = d_corr(a, b)
+            assert 0.0 <= val <= 1.0 + 1e-12
 
 
-def test_compute_pair_metrics_different():
-    """Test metrics for different components."""
-    comp_k = np.sin(np.linspace(0, 4 * np.pi, 100))
-    comp_k1 = np.random.randn(100)
-    
-    metrics = compute_pair_metrics(comp_k, comp_k1, overlap_len=100, fs=1.0)
-    
-    assert metrics["corr"] < 0.5
-    assert metrics["overlap_l2"] > 0.5
-    assert metrics["energy_delta"] > 0.1
+class TestQrf:
+    """Tests for the Quality of Reconstruction Factor."""
+
+    def test_qrf_perfect(self) -> None:
+        x = np.arange(10, dtype=np.float64)
+        assert qrf(x, x) == np.inf
 
 
-def test_compute_pair_metrics_sign_invariant():
-    """Test that metrics are sign-invariant."""
-    comp_k = np.sin(np.linspace(0, 4 * np.pi, 100))
-    comp_k1 = -np.sin(np.linspace(0, 4 * np.pi, 100))
-    
-    metrics = compute_pair_metrics(comp_k, comp_k1, overlap_len=100, fs=1.0)
-    
-    # Correlation should be high (sign-invariant)
-    assert metrics["corr"] > 0.99
+class TestSubspaceAngle:
+    """Tests for the principal subspace angle."""
+
+    def test_subspace_angle_identical(self) -> None:
+        rng = np.random.default_rng(7)
+        U = np.linalg.qr(rng.standard_normal((20, 5)))[0]
+        assert subspace_angle(U, U) == pytest.approx(0.0, abs=1e-10)
 
 
-def test_compute_pair_metrics_frequency():
-    """Test frequency delta computation."""
-    fs = 100.0
-    t = np.linspace(0, 1, int(fs))
-    comp_k = np.sin(2 * np.pi * 5 * t)  # 5 Hz
-    comp_k1 = np.sin(2 * np.pi * 7 * t)  # 7 Hz
-    
-    metrics = compute_pair_metrics(comp_k, comp_k1, overlap_len=len(comp_k), fs=fs)
-    
-    assert metrics["freq_delta"] is not None
-    assert abs(metrics["freq_delta"] - 2.0) < 1.0  # Should be around 2 Hz difference
+class TestWCorrelation:
+    """Tests for the weighted correlation."""
+
+    def test_w_correlation_separable(self) -> None:
+        N = 1000
+        L = 100
+        t = np.arange(N) / float(N)
+        x = np.sin(2.0 * np.pi * 3.0 * t)
+        y = np.sin(2.0 * np.pi * 50.0 * t)
+        wc = w_correlation(x, y, L)
+        assert wc < 0.1
+
+
+class TestFrequencyDrift:
+    """Tests for frequency_drift."""
+
+    def test_frequency_drift_constant(self) -> None:
+        assert frequency_drift([5.0, 5.0, 5.0, 5.0]) == pytest.approx(
+            0.0
+        )

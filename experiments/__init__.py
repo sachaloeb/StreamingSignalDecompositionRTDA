@@ -1,1 +1,1 @@
-"""Synthetic signal generation experiments."""
+"""Experiments package."""
