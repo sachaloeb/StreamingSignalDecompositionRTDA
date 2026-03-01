@@ -130,10 +130,12 @@ dmypy.json
 *~
 .DS_Store
 
-# Project-specific
+# Project-specific: experiment and demo outputs
 outputs/
+results/
+*.npz
 *.csv
 *.png
 *.json
-!configs/*.json
-!configs/*.yaml
+
+# Config templates are tracked (experiments/configs/*.yaml)

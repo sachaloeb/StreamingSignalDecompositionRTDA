@@ -18,7 +18,7 @@ ssd:
 
 matcher:
   distance: d_corr
-  freq_weight: 0.0
+  freq_weight: 0.1
 
 output:
   save_trajectories: true
