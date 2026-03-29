@@ -76,22 +76,36 @@ def _generate_signal(cfg: dict) -> np.ndarray:
     return gen(**cfg)
 
 
-def run(config_path: str, output_dir: str) -> None:
+def run(
+    config_path: str | None = None,
+    output_dir: str = "results/default",
+    config_dict: dict | None = None,  # WEEK6-FIX: accept pre-built config dict
+) -> None:
     """Execute a full streaming experiment from a YAML config.
 
     Parameters
     ----------
-    config_path : str
+    config_path : str or None
         Path to the YAML configuration file.
     output_dir : str
         Directory to write results into.
+    config_dict : dict or None, optional
+        Pre-built configuration dictionary.  Takes precedence over
+        *config_path* when both are given.
     """
-    with open(config_path, "r") as fh:
-        cfg = yaml.safe_load(fh)
+    # WEEK6-FIX: support config_dict kwarg for programmatic use
+    if config_dict is not None:
+        cfg = config_dict
+    elif config_path is not None:
+        with open(config_path, "r") as fh:
+            cfg = yaml.safe_load(fh)
+    else:
+        raise ValueError("Either config_path or config_dict required")
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(config_path, out / "config_used.yaml")
+    if config_path is not None:
+        shutil.copy2(config_path, out / "config_used.yaml")
 
     sig_cfg = dict(cfg["signal"])
     signal = _generate_signal(sig_cfg)
@@ -120,10 +134,12 @@ def run(config_path: str, output_dir: str) -> None:
 
     prev_components: list[np.ndarray] = []
     prev_S: np.ndarray | None = None
+    prev_window_energy: float | None = None
     window_idx = 0
     overlap = wm.overlap
 
     metrics_rows: list[dict] = []
+    freq_trajectory: list[float] = []
 
     logger.info(
         "Starting experiment: N=%d, window=%d, stride=%d",
@@ -154,15 +170,23 @@ def run(config_path: str, output_dir: str) -> None:
         recon = sum(components_no_res) + residual
         qrf_val = qrf(window, recon)
 
-        freqs_list = []
-        for c in components_no_res:
-            fqs = np.fft.rfftfreq(len(c), d=1.0 / fs)
-            mag = np.abs(np.fft.rfft(c))
-            freqs_list.append(float(fqs[np.argmax(mag)]))
-        fd_val = frequency_drift(freqs_list)
+        # Track dominant frequency per window; aggregate drift globally
+        # after the streaming run.
+        fqs_win = np.fft.rfftfreq(len(window), d=1.0 / fs)
+        mag_win = np.abs(np.fft.rfft(window))
+        freq_trajectory.append(float(fqs_win[np.argmax(mag_win)]))
+        fd_val = np.nan
 
-        energies = [float(np.dot(c, c)) for c in components_no_res]
-        ec_val = energy_continuity(energies)
+        # Cross-window energy continuity from total component energy.
+        curr_window_energy = float(
+            sum(np.dot(c, c) for c in components_no_res)
+        )
+        ec_val = 0.0
+        if prev_window_energy is not None:
+            ec_val = energy_continuity(
+                [prev_window_energy, curr_window_energy]
+            )
+        prev_window_energy = curr_window_energy
 
         from src.ssd.ssa import svd_decompose
 
@@ -192,6 +216,10 @@ def run(config_path: str, output_dir: str) -> None:
 
         prev_components = components_no_res
         window_idx += 1
+
+    global_freq_drift = frequency_drift(freq_trajectory)
+    for row in metrics_rows:
+        row["freq_drift"] = global_freq_drift
 
     if cfg["output"].get("save_metrics", True) and metrics_rows:
         csv_path = out / "metrics.csv"
