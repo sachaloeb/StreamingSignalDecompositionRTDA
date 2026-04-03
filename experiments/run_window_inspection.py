@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -29,20 +30,47 @@ from src.visualization.window_inspector import (
     plot_window_reconstruction,
 )
 
-FS = 1000.0
+CONFIG_PATH = "experiments/configs/baseline.yaml"
 
 
 def main() -> None:
     """Entry point for the window-inspection experiment."""
+    # Load configuration from baseline config
+    with open(CONFIG_PATH) as fh:
+        cfg = yaml.safe_load(fh)
+
+    sig_cfg = cfg["signal"]
+    stream_cfg = cfg["streaming"]
+    ssd_cfg = cfg["ssd"]
+    matcher_cfg = cfg["matcher"]
+
+    # Generate signal using config parameters
     signal = chirp_plus_sinusoid(
-        N=10000, f_sin=50, f_start=10, f_end=150,
-        fs=FS, snr_db=20, seed=42,
+        N=sig_cfg["N"],
+        f_sin=sig_cfg["f_sin"],
+        f_start=sig_cfg["f_start"],
+        f_end=sig_cfg["f_end"],
+        fs=sig_cfg["fs"],
+        snr_db=sig_cfg["snr_db"],
+        seed=42,
     )
 
-    wm = WindowManager(window_len=300, stride=150)
-    ssd = SSD(fs=FS)
-    store = TrajectoryStore(max_components=4)
-    matcher = ComponentMatcher(distance="hybrid")
+    wm = WindowManager(
+        window_len=stream_cfg["window_len"],
+        stride=stream_cfg["stride"],
+        fs=sig_cfg["fs"],
+    )
+    ssd = SSD(
+        fs=sig_cfg["fs"],
+        nmse_threshold=ssd_cfg["nmse_threshold"],
+        max_iter=ssd_cfg["max_iter"],
+    )
+    store = TrajectoryStore(max_components=stream_cfg["max_components"])
+    matcher = ComponentMatcher(
+        distance=matcher_cfg["distance"],
+        freq_weight=matcher_cfg["freq_weight"],
+        fs=sig_cfg["fs"],
+    )
 
     pipeline_records: list[dict] = []
     prev_components: list[np.ndarray] = []
@@ -100,12 +128,12 @@ def main() -> None:
     os.makedirs(out_dir, exist_ok=True)
 
     plot_window_grid(
-        pipeline_records, n_windows=9, fs=FS,
+        pipeline_records, n_windows=9, fs=sig_cfg["fs"],
         save_path=os.path.join(out_dir, "window_grid.png"),
     )
 
     _t_axis, nmse_vals = plot_nmse_over_time(
-        signal, reconstruction, fs=FS,
+        signal, reconstruction, fs=sig_cfg["fs"],
         save_path=os.path.join(
             out_dir, "nmse_over_time.png",
         ),
@@ -123,7 +151,7 @@ def main() -> None:
             rec["components"],
             rec["window_idx"],
             rec["sample_start"],
-            fs=FS,
+            fs=sig_cfg["fs"],
             save_path=os.path.join(
                 out_dir,
                 f"window_{rec['window_idx']:04d}.png",
