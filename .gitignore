@@ -137,5 +137,5 @@ results/
 *.csv
 *.png
 *.json
-
+CLAUDE.md
 # Config templates are tracked (experiments/configs/*.yaml)

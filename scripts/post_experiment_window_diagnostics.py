@@ -7,7 +7,7 @@ window, runs SSD on it, and produces per-window diagnostic plots
 
 Usage
 -----
-    python scripts/inspect_windows.py \
+    python scripts/post_experiment_window_diagnostics.py \
         --results-dir results/demo_run \
         [--flagged 5 27 29 30 31 58] \
         [--top-k 10]
