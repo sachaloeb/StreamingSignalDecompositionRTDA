@@ -30,9 +30,10 @@ from experiments.synthetic.generators import (
     rossler,
     two_sinusoids,
 )
-from src.metrics.stability import (
+from src.metrics.stability import (  # WEEK6-METRICS-FIX: updated imports
+    dominant_frequency,
     energy_continuity,
-    frequency_drift,
+    freq_drift_aggregate,
     matching_confidence,
     qrf,
     singular_value_drift,
@@ -132,14 +133,16 @@ def run(
         max_len=N,
     )
 
-    prev_components: list[np.ndarray] = []
+    # WEEK6-METRICS-FIX: cross-window state persists between windows
+    prev_components: list[np.ndarray] | None = None
     prev_S: np.ndarray | None = None
-    prev_window_energy: float | None = None
     window_idx = 0
     overlap = wm.overlap
+    max_components = cfg["streaming"]["max_components"]
 
     metrics_rows: list[dict] = []
-    freq_trajectory: list[float] = []
+
+    from src.ssd.ssa import svd_decompose  # WEEK6-METRICS-FIX
 
     logger.info(
         "Starting experiment: N=%d, window=%d, stride=%d",
@@ -152,80 +155,124 @@ def run(
             continue
 
         components = ssd.fit(window)
-        residual = components[-1]
         components_no_res = components[:-1]
 
-        if len(prev_components) == 0:
-            matching = {i: None for i in range(len(components_no_res))}
+        if prev_components is None:  # WEEK6-METRICS-FIX
+            matching: dict[int, int | None] = {
+                i: None
+                for i in range(len(components_no_res))
+            }
         else:
             matching = matcher.match(
-                prev_components, components_no_res, overlap,
+                prev_components, components_no_res,
+                overlap,
             )
 
         window_start = sample_idx - wm.window_len + 1
         store.update(
-            window_start, components_no_res, matching, overlap,
+            window_start, components_no_res,
+            matching, overlap,
         )
 
-        recon = sum(components_no_res) + residual
+        # WEEK6-METRICS-FIX: QRF is intra-window (no residual)
+        recon = (
+            np.sum(components_no_res, axis=0)
+            if components_no_res
+            else np.zeros_like(window)
+        )
         qrf_val = qrf(window, recon)
 
-        # Track dominant frequency per window; aggregate drift globally
-        # after the streaming run.
-        fqs_win = np.fft.rfftfreq(len(window), d=1.0 / fs)
-        mag_win = np.abs(np.fft.rfft(window))
-        freq_trajectory.append(float(fqs_win[np.argmax(mag_win)]))
-        fd_val = np.nan
-
-        # Cross-window energy continuity from total component energy.
-        curr_window_energy = float(
-            sum(np.dot(c, c) for c in components_no_res)
-        )
-        ec_val = 0.0
-        if prev_window_energy is not None:
-            ec_val = energy_continuity(
-                [prev_window_energy, curr_window_energy]
-            )
-        prev_window_energy = curr_window_energy
-
-        from src.ssd.ssa import svd_decompose
-
+        # WEEK6-METRICS-FIX: singular_value_drift (cross-window)
         M_win = ssd._choose_window_length(window)
         X_win = SSD._build_trajectory_matrix(window, M_win)
         _, S_curr, _ = svd_decompose(X_win)
-        svd_drift = 0.0
-        if prev_S is not None:
-            svd_drift = singular_value_drift(prev_S, S_curr)
+        svd_drift = singular_value_drift(
+            S_curr, prev_S,
+        )
         prev_S = S_curr
 
-        cost = matcher.build_cost_matrix(
-            prev_components if prev_components else components_no_res,
-            components_no_res,
-            overlap,
+        # WEEK6-METRICS-FIX: energy_continuity (cross-window)
+        ec_val = energy_continuity(
+            components_no_res, prev_components, matching,
         )
-        mc_val = matching_confidence(cost, matching)
 
-        metrics_rows.append({
-            "window": window_idx,
+        # WEEK6-METRICS-FIX: matching_confidence
+        if prev_components is not None:
+            cost = matcher.build_cost_matrix(
+                prev_components, components_no_res,
+                overlap,
+            )
+            mc_val = matching_confidence(cost, matching)
+        else:
+            mc_val = float("nan")
+
+        # WEEK6-METRICS-FIX: per-component dominant frequency
+        fmax_row: dict[str, float] = {}
+        for ci, comp in enumerate(components_no_res):
+            col = f"f_max_c{ci}"
+            fmax_row[col] = dominant_frequency(
+                comp, fs=fs,
+            )
+        for ci in range(
+            len(components_no_res), max_components,
+        ):
+            fmax_row[f"f_max_c{ci}"] = float("nan")
+
+        # WEEK6-METRICS-FIX: metrics row with correct scopes
+        row: dict[str, object] = {
+            "window_index": window_idx,
             "qrf": qrf_val,
-            "freq_drift": fd_val,
-            "energy_continuity": ec_val,
             "singular_value_drift": svd_drift,
+            "energy_continuity": ec_val,
             "matching_confidence": mc_val,
-        })
+        }
+        row.update(fmax_row)
+        metrics_rows.append(row)
 
         prev_components = components_no_res
         window_idx += 1
 
-    global_freq_drift = frequency_drift(freq_trajectory)
-    for row in metrics_rows:
-        row["freq_drift"] = global_freq_drift
+    # WEEK6-METRICS-FIX: compute global aggregates after run
+    import json as _json
+
+    import pandas as _pd
+
+    # WEEK6-METRICS-FIX: compute global aggregates after run
+    summary: dict[str, float] = {}
+    if metrics_rows:
+        metrics_df = _pd.DataFrame(metrics_rows)
+        ci = 0
+        while True:
+            col = f"f_max_c{ci}"
+            if col not in metrics_df.columns:
+                break
+            fd = freq_drift_aggregate(
+                metrics_df[col].values,
+            )
+            summary[f"freq_drift_c{ci}"] = fd
+            ci += 1
+
+    summary_path = out / "run_summary.json"
+    with open(summary_path, "w") as fh:
+        _json.dump(
+            {k: (None if np.isnan(v) else v)
+             for k, v in summary.items()},
+            fh, indent=2,
+        )
+    logger.info("Saved summary to %s", summary_path)
 
     if cfg["output"].get("save_metrics", True) and metrics_rows:
         csv_path = out / "metrics.csv"
+        # WEEK6-METRICS-FIX: gather superset of keys across rows
+        all_keys: dict[str, None] = {}
+        for r in metrics_rows:
+            for k in r:
+                all_keys[k] = None
+        fieldnames = list(all_keys)
         with open(csv_path, "w", newline="") as fh:
             writer = csv.DictWriter(
-                fh, fieldnames=list(metrics_rows[0].keys()),
+                fh, fieldnames=fieldnames,
+                extrasaction="ignore",
             )
             writer.writeheader()
             writer.writerows(metrics_rows)
@@ -234,11 +281,15 @@ def run(
     if cfg["output"].get("save_trajectories", True):
         trajs = store.get_all()
         npz_path = out / "trajectories.npz"
-        np.savez(npz_path, **{str(k): v for k, v in trajs.items()})
+        np.savez(
+            npz_path,
+            **{str(k): v for k, v in trajs.items()},
+        )
         logger.info("Saved trajectories to %s", npz_path)
 
     logger.info(
-        "Experiment complete: %d windows processed.", window_idx,
+        "Experiment complete: %d windows processed.",
+        window_idx,
     )
 
 
