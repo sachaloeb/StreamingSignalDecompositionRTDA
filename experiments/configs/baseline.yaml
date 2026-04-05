@@ -1,6 +1,6 @@
 signal:
   type: chirp_plus_sinusoid
-  N: 30000
+  N: 3000
   fs: 1000.0
   f_sin: 50.0
   f_start: 10.0
@@ -8,8 +8,8 @@ signal:
   snr_db: 20.0
 
 streaming:
-  window_len: 500
-  stride: 300
+  window_len: 300
+  stride: 150
   max_components: 4
 
 ssd:

@@ -37,11 +37,7 @@ def d_corr(x: np.ndarray, y: np.ndarray) -> float:
     return 1.0 - float(np.abs(np.dot(x, y)) / (norm_x * norm_y))
 
 
-def d_freq(
-    g1: np.ndarray,
-    g2: np.ndarray,
-    fs: float = 1.0,
-) -> float:
+def d_freq(g1, g2, fs=1.0, method="welch", nperseg=None) -> float:
     """Absolute difference of dominant frequencies.
 
     Parameters
@@ -58,13 +54,21 @@ def d_freq(
     float
         |f_max(g1) - f_max(g2)| in Hz.
     """
-    freqs1 = np.fft.rfftfreq(len(g1), d=1.0 / fs)
-    freqs2 = np.fft.rfftfreq(len(g2), d=1.0 / fs)
-    mag1 = np.abs(np.fft.rfft(g1))
-    mag2 = np.abs(np.fft.rfft(g2))
-    f1 = float(freqs1[np.argmax(mag1)])
-    f2 = float(freqs2[np.argmax(mag2)])
-    return abs(f1 - f2)
+    if method == "welch":
+        from .stability import dominant_frequency
+        f1 = dominant_frequency(g1, fs=fs, nperseg=nperseg)
+        f2 = dominant_frequency(g2, fs=fs, nperseg=nperseg)
+        if not np.isfinite(f1) or not np.isfinite(f2):
+            return float("nan")
+        return abs(f1 - f2)
+    else:
+        freqs1 = np.fft.rfftfreq(len(g1), d=1.0 / fs)
+        freqs2 = np.fft.rfftfreq(len(g2), d=1.0 / fs)
+        mag1 = np.abs(np.fft.rfft(g1))
+        mag2 = np.abs(np.fft.rfft(g2))
+        f1 = float(freqs1[np.argmax(mag1)])
+        f2 = float(freqs2[np.argmax(mag2)])
+        return abs(f1 - f2)
 
 
 def subspace_angle(

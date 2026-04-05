@@ -320,8 +320,8 @@ def _plot_freq_drift_bar(  # WEEK6-PLOT
     ax.axvline(  # WEEK6-PLOT
         0, color="gray", linewidth=0.8, alpha=0.5,  # WEEK6-PLOT
     )  # WEEK6-PLOT
-    ax.set_xlabel("Component")  # WEEK6-PLOT
-    ax.set_ylabel("Freq drift  Var_t[f_max] (Hz²)")  # WEEK6-PLOT
+    ax.set_xlabel("Freq drift  Var_t[f_max] (Hz²)")  # WEEK6-PLOT
+    ax.set_ylabel("Component")  # WEEK6-PLOT
     ax.set_title(  # WEEK6-PLOT
         "Post-Hoc freq_drift Aggregate  "  # WEEK6-PLOT
         "(global Var_t[f_max] per component)"  # WEEK6-PLOT
