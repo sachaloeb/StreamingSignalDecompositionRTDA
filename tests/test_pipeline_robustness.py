@@ -83,7 +83,7 @@ def _run_streaming(
         )
         all_matchings.append(matching)
 
-        recon = sum(components_no_res) + residual
+        recon = sum(components_no_res)
         qrf_values.append(qrf(window, recon))
 
         prev_components = components_no_res
