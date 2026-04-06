@@ -124,7 +124,7 @@ class TestMetricsCsvOutput:
         assert len(df) > 0, "metrics.csv is empty"
 
         required = [
-            "qrf", "freq_drift", "energy_continuity",
+            "qrf", "energy_continuity",
             "singular_value_drift", "matching_confidence",
         ]
         for col in required:

@@ -58,6 +58,10 @@ class TrajectoryStore:
 
             if prev_idx is None:
                 traj_id = self._next_free_id()
+                if traj_id is None:
+                    # Store is full: honour the max_components cap
+                    # instead of unbounded id allocation.
+                    continue
             else:
                 traj_id = prev_idx
 
@@ -137,10 +141,15 @@ class TrajectoryStore:
                 np.zeros(extra, dtype=np.float64),
             ])
 
-    def _next_free_id(self) -> int:
-        """Return the smallest non-negative integer not already used."""
+    def _next_free_id(self) -> int | None:
+        """Return the smallest free id in ``[0, max_components)``.
+
+        Returns ``None`` when every slot is occupied, so callers can
+        honour the ``max_components`` cap instead of allocating
+        unbounded trajectory ids.
+        """
         used = set(self._trajectories.keys())
-        i = 0
-        while i in used:
-            i += 1
-        return i
+        for i in range(self.max_components):
+            if i not in used:
+                return i
+        return None
