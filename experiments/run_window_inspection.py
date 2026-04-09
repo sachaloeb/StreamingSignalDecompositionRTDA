@@ -70,6 +70,9 @@ def main() -> None:
         distance=matcher_cfg["distance"],
         freq_weight=matcher_cfg["freq_weight"],
         fs=sig_cfg["fs"],
+        lookback=matcher_cfg["lookback"],
+        max_cost=matcher_cfg["max_cost"],
+        max_trajectories= stream_cfg["max_components"],
     )
 
     pipeline_records: list[dict] = []
@@ -85,19 +88,11 @@ def main() -> None:
         components = ssd.fit(window)
         signal_components = components[:-1]
 
-        if prev_components:
-            overlap = wm.overlap
-            matching = matcher.match(
-                prev_components, signal_components, overlap,
-            )
-            store.update(
-                sample_start, signal_components,
-                matching, overlap,
-            )
-        else:
-            store.update(
-                sample_start, signal_components, {}, 0,
-            )
+        overlap = wm.overlap
+        matching = matcher.match_stateful(signal_components, overlap)
+        store.update(
+            sample_start, signal_components, matching, overlap,
+        )
 
         pipeline_records.append({
             "window_idx": window_idx,

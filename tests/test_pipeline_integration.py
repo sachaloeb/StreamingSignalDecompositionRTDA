@@ -37,7 +37,10 @@ class TestFullStreamingRun:
 
         wm = WindowManager(window_len=300, stride=30, fs=1000.0)
         ssd = SSD(fs=1000.0)
-        matcher = ComponentMatcher(distance="d_corr", fs=1000.0)
+        matcher = ComponentMatcher(
+            distance="d_corr", fs=1000.0,
+            lookback=3, max_cost=0.5, max_trajectories=4,
+        )
         store = TrajectoryStore(
             max_components=4, max_len=len(signal),
         )
@@ -51,16 +54,9 @@ class TestFullStreamingRun:
             components = ssd.fit(window)
             components_no_res = components[:-1]
 
-            if prev_components:
-                overlap = wm.overlap
-                matching = matcher.match(
-                    prev_components, components_no_res, overlap,
-                )
-            else:
-                matching = {
-                    i: None
-                    for i in range(len(components_no_res))
-                }
+            matching = matcher.match_stateful(
+                components_no_res, wm.overlap,
+            )
 
             window_start = t - wm.window_len + 1
             store.update(
@@ -71,6 +67,9 @@ class TestFullStreamingRun:
 
         trajs = store.get_all()
         assert len(trajs) >= 1, "No trajectories stored"
+        assert len(trajs) <= 4, (
+            f"Trajectory count {len(trajs)} exceeds max_components=4"
+        )
 
         has_usable = False
         for arr in trajs.values():

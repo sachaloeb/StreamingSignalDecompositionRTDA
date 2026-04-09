@@ -127,6 +127,9 @@ def run(
         distance=cfg["matcher"]["distance"],
         freq_weight=cfg["matcher"]["freq_weight"],
         fs=fs,
+        lookback=cfg["matcher"]["lookback"],
+        max_cost=cfg["matcher"]["max_cost"],
+        max_trajectories=cfg["streaming"]["max_components"],
     )
     store = TrajectoryStore(
         max_components=cfg["streaming"]["max_components"],
@@ -157,16 +160,13 @@ def run(
         components = ssd.fit(window)
         components_no_res = components[:-1]
 
-        if prev_components is None:  # WEEK6-METRICS-FIX
-            matching: dict[int, int | None] = {
-                i: None
-                for i in range(len(components_no_res))
-            }
-        else:
-            matching = matcher.match(
-                prev_components, components_no_res,
-                overlap,
-            )
+        # Stateful multi-window matcher: returns persistent traj_ids
+        matching: dict[int, int | None] = dict(
+            matcher.match_stateful(components_no_res, overlap)
+        )
+        # Legacy per-window mapping for energy_continuity /
+        # matching_confidence (curr_idx -> idx-in-prev-window or None).
+        prev_window_matching = matcher.previous_window_mapping()
 
         window_start = sample_idx - wm.window_len + 1
         store.update(
@@ -193,16 +193,16 @@ def run(
 
         # WEEK6-METRICS-FIX: energy_continuity (cross-window)
         ec_val = energy_continuity(
-            components_no_res, prev_components, matching,
+            components_no_res, prev_components, prev_window_matching,
         )
 
         # WEEK6-METRICS-FIX: matching_confidence
-        if prev_components is not None:
+        if prev_components is not None and prev_window_matching:
             cost = matcher.build_cost_matrix(
                 prev_components, components_no_res,
                 overlap,
             )
-            mc_val = matching_confidence(cost, matching)
+            mc_val = matching_confidence(cost, prev_window_matching)
         else:
             mc_val = float("nan")
 

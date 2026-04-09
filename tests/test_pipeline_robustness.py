@@ -50,7 +50,10 @@ def _run_streaming(
     """
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
     ssd = SSD(fs=fs)
-    matcher = ComponentMatcher(distance=distance, fs=fs)
+    matcher = ComponentMatcher(
+        distance=distance, fs=fs,
+        lookback=3, max_cost=0.5, max_trajectories=max_components,
+    )
     store = TrajectoryStore(
         max_components=max_components, max_len=len(signal),
     )
@@ -68,14 +71,9 @@ def _run_streaming(
         components_no_res = components[:-1]
         residual = components[-1]
 
-        if not prev_components:
-            matching: dict[int, int | None] = {
-                i: None for i in range(len(components_no_res))
-            }
-        else:
-            matching = matcher.match(
-                prev_components, components_no_res, wm.overlap,
-            )
+        matching: dict[int, int | None] = dict(
+            matcher.match_stateful(components_no_res, wm.overlap)
+        )
 
         window_start = t - wm.window_len + 1
         store.update(
@@ -117,13 +115,19 @@ class TestPipelineRobustness:
         )
         store, all_matchings, _ = _run_streaming(signal)
 
-        has_none = any(
-            None in m.values() and len(m) > 0
-            for m in all_matchings[1:]
-        )
-        assert has_none, (
-            "Expected at least one matching with a None "
-            "(new unmatched component) after onset"
+        # With the stateful matcher every component gets a persistent
+        # traj_id; a "new" component manifests as a previously-unseen id.
+        seen: set[int] = set()
+        new_after_first = False
+        for m in all_matchings:
+            for tid in m.values():
+                if tid is not None and tid not in seen:
+                    if seen:
+                        new_after_first = True
+                    seen.add(tid)
+        assert new_after_first, (
+            "Expected at least one new trajectory id allocated after "
+            "the onset"
         )
 
     def test_pipeline_constant_signal(self) -> None:

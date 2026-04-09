@@ -64,6 +64,16 @@ class TrajectoryStore:
                     continue
             else:
                 traj_id = prev_idx
+                # Sentinel from the matcher meaning "drop this component".
+                if traj_id < 0:
+                    continue
+                # Enforce max_components even when ids are supplied
+                # externally (e.g. by the stateful ComponentMatcher).
+                if (
+                    traj_id not in self._trajectories
+                    and len(self._trajectories) >= self.max_components
+                ):
+                    continue
 
             if traj_id not in self._trajectories:
                 required = end

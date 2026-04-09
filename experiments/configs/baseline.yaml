@@ -10,7 +10,7 @@ signal:
 streaming:
   window_len: 300
   stride: 150
-  max_components: 4
+  max_components: 100
 
 ssd:
   nmse_threshold: 0.01
@@ -19,6 +19,8 @@ ssd:
 matcher:
   distance: hybrid
   freq_weight: 0.5
+  lookback: 10
+  max_cost: 0.6
 
 output:
   save_trajectories: true
