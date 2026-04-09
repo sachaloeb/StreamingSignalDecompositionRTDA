@@ -18,11 +18,12 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import curve_fit
 
+from src.engines.base import DecompositionEngine
+from src.engines.ssa import diagonal_averaging, svd_decompose
 from src.metrics.stability import nmse as compute_nmse
-from src.ssd.ssa import diagonal_averaging, svd_decompose
 
 
-class SSD:
+class SSD(DecompositionEngine):
     """Singular Spectrum Decomposition.
 
     Parameters
@@ -41,8 +42,9 @@ class SSD:
         fs: float,
         nmse_threshold: float = 0.01,
         max_iter: int = 20,
+        **kwargs: object,
     ) -> None:
-        self.fs = fs
+        super().__init__(fs=fs, **kwargs)
         self.nmse_threshold = nmse_threshold
         self.max_iter = max_iter
 

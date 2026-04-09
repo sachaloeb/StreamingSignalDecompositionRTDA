@@ -39,7 +39,7 @@ from experiments.synthetic.generators import (
     rossler,
     two_sinusoids,
 )
-from src.ssd.core import SSD
+from src.engines.ssd import SSD
 
 _GENERATORS = {
     "two_sinusoids": two_sinusoids,

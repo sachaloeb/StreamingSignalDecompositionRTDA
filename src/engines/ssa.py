@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 
+from src.engines.base import DecompositionEngine
 from src.metrics.similarity import d_corr
 
 
@@ -170,3 +171,38 @@ def auto_ssa(
         groups.append(diagonal_averaging(X_group))
 
     return groups
+
+
+class SSA(DecompositionEngine):
+    """Automated SSA decomposition engine.
+
+    Thin wrapper around :func:`auto_ssa` exposing the
+    :class:`DecompositionEngine` interface.
+
+    Parameters
+    ----------
+    fs : float
+        Sampling frequency in Hz (kept for interface uniformity; not
+        used by plain SSA).
+    n_components : int, optional
+        Number of grouped components to return. Default 2.
+    window_length : int or None, optional
+        Embedding window length L. If ``None`` (default), uses N // 3.
+    """
+
+    def __init__(
+        self,
+        fs: float,
+        n_components: int = 2,
+        window_length: int | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(fs=fs, **kwargs)
+        self.n_components = n_components
+        self.window_length = window_length
+
+    def fit(self, x: np.ndarray) -> list[np.ndarray]:
+        x = np.asarray(x, dtype=np.float64)
+        L = self.window_length if self.window_length is not None else max(2, len(x) // 3)
+        L = int(min(L, len(x) - 1))
+        return auto_ssa(x, r=self.n_components, L=L)

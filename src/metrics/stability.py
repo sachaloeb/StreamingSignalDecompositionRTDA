@@ -3,7 +3,7 @@
 Tracks reconstruction fidelity, spectral drift, energy continuity,
 and matching confidence over successive analysis windows.
 
-Metric temporal scopes (WEEK6-METRICS-FIX):
+Metric temporal scopes:
 - **intra-window**: qrf — no history required.
 - **cross-window**: singular_value_drift, energy_continuity — need t-1.
 - **global aggregate**: freq_drift_aggregate — post-hoc over full run.
@@ -14,7 +14,6 @@ from __future__ import annotations
 import numpy as np
 
 
-# WEEK6-METRICS-FIX: correct guard threshold to 1e-12 per spec
 def qrf(
     signal: np.ndarray,
     reconstruction: np.ndarray,
@@ -68,7 +67,6 @@ def nmse(residual: np.ndarray, original: np.ndarray) -> float:
     return float(np.dot(residual, residual) / orig_energy)
 
 
-# WEEK6-METRICS-FIX: kept for backward compatibility; alias below
 def frequency_drift(freq_trajectory: list[float]) -> float:
     """Variance of a frequency trajectory across windows.
 
@@ -91,7 +89,6 @@ def frequency_drift(freq_trajectory: list[float]) -> float:
     return float(np.var(freq_trajectory))
 
 
-# WEEK6-METRICS-FIX: new cross-window energy_continuity signature
 def energy_continuity(
     components_curr: list[np.ndarray],
     components_prev: list[np.ndarray] | None,
@@ -147,7 +144,6 @@ def energy_continuity(
     return total
 
 
-# WEEK6-METRICS-FIX: accept S_prev=None -> NaN at t=0
 def singular_value_drift(
     S_curr: np.ndarray,
     S_prev: np.ndarray | None,
@@ -184,7 +180,6 @@ def singular_value_drift(
     return float(np.linalg.norm(s_c - s_p))
 
 
-# WEEK6-METRICS-FIX: per-row dominant frequency for freq_drift
 def dominant_frequency(
     component: np.ndarray,
     fs: float = 1.0,
@@ -225,7 +220,6 @@ def dominant_frequency(
     return float(freqs[np.argmax(psd)])
 
 
-# WEEK6-METRICS-FIX: post-hoc global aggregate for freq_drift
 def freq_drift_aggregate(
     freq_trajectory: list[float] | np.ndarray,
 ) -> float:

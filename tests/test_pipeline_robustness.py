@@ -22,7 +22,7 @@ from experiments.synthetic.generators import (
     two_sinusoids,
 )
 from src.metrics.stability import nmse, qrf
-from src.ssd.core import SSD
+from src.engines.ssd import SSD
 from src.streaming.component_matcher import ComponentMatcher
 from src.streaming.trajectory_store import TrajectoryStore
 from src.streaming.window_manager import WindowManager

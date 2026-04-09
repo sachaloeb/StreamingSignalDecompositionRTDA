@@ -12,7 +12,8 @@ streaming:
   stride: 150
   max_components: 100
 
-ssd:
+engine:
+  name: ssd
   nmse_threshold: 0.01
   max_iter: 20
 

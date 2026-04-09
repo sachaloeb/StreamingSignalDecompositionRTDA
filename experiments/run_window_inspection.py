@@ -19,11 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from experiments.run_experiment import build_pipeline
 from experiments.synthetic.generators import chirp_plus_sinusoid
-from src.ssd.core import SSD
-from src.streaming.component_matcher import ComponentMatcher
-from src.streaming.trajectory_store import TrajectoryStore
-from src.streaming.window_manager import WindowManager
 from src.visualization.window_inspector import (
     plot_nmse_over_time,
     plot_window_grid,
@@ -40,9 +37,6 @@ def main() -> None:
         cfg = yaml.safe_load(fh)
 
     sig_cfg = cfg["signal"]
-    stream_cfg = cfg["streaming"]
-    ssd_cfg = cfg["ssd"]
-    matcher_cfg = cfg["matcher"]
 
     # Generate signal using config parameters
     signal = chirp_plus_sinusoid(
@@ -55,25 +49,7 @@ def main() -> None:
         seed=42,
     )
 
-    wm = WindowManager(
-        window_len=stream_cfg["window_len"],
-        stride=stream_cfg["stride"],
-        fs=sig_cfg["fs"],
-    )
-    ssd = SSD(
-        fs=sig_cfg["fs"],
-        nmse_threshold=ssd_cfg["nmse_threshold"],
-        max_iter=ssd_cfg["max_iter"],
-    )
-    store = TrajectoryStore(max_components=stream_cfg["max_components"])
-    matcher = ComponentMatcher(
-        distance=matcher_cfg["distance"],
-        freq_weight=matcher_cfg["freq_weight"],
-        fs=sig_cfg["fs"],
-        lookback=matcher_cfg["lookback"],
-        max_cost=matcher_cfg["max_cost"],
-        max_trajectories= stream_cfg["max_components"],
-    )
+    wm, engine, matcher, store = build_pipeline(cfg, signal_length=len(signal))
 
     pipeline_records: list[dict] = []
     prev_components: list[np.ndarray] = []
@@ -85,7 +61,7 @@ def main() -> None:
 
         sample_start = t - wm.window_len + 1
         window_idx = len(pipeline_records)
-        components = ssd.fit(window)
+        components = engine.fit(window)
         signal_components = components[:-1]
 
         overlap = wm.overlap

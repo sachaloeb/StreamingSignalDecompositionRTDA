@@ -1,4 +1,4 @@
-"""CLI entry point for running streaming SSD experiments.
+"""CLI entry point for running streaming decomposition experiments.
 
 Usage
 -----
@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import shutil
 import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import yaml
 from tqdm import tqdm
 
@@ -30,7 +32,8 @@ from experiments.synthetic.generators import (
     rossler,
     two_sinusoids,
 )
-from src.metrics.stability import (  # WEEK6-METRICS-FIX: updated imports
+from src.engines import build_trajectory_matrix, get_engine, svd_decompose
+from src.metrics.stability import (
     dominant_frequency,
     energy_continuity,
     freq_drift_aggregate,
@@ -38,7 +41,6 @@ from src.metrics.stability import (  # WEEK6-METRICS-FIX: updated imports
     qrf,
     singular_value_drift,
 )
-from src.ssd.core import SSD
 from src.streaming.component_matcher import ComponentMatcher
 from src.streaming.trajectory_store import TrajectoryStore
 from src.streaming.window_manager import WindowManager
@@ -55,18 +57,7 @@ _GENERATORS = {
 
 
 def _generate_signal(cfg: dict) -> np.ndarray:
-    """Dispatch to the appropriate signal generator.
-
-    Parameters
-    ----------
-    cfg : dict
-        ``signal`` section of the YAML config.
-
-    Returns
-    -------
-    np.ndarray
-        Generated signal.
-    """
+    """Dispatch to the appropriate signal generator."""
     sig_type = cfg.pop("type")
     gen = _GENERATORS.get(sig_type)
     if gen is None:
@@ -77,24 +68,45 @@ def _generate_signal(cfg: dict) -> np.ndarray:
     return gen(**cfg)
 
 
+def build_pipeline(cfg: dict, signal_length: int) -> tuple:
+    """Instantiate the streaming pipeline objects from a config dict.
+
+    Returns
+    -------
+    tuple
+        ``(window_manager, engine, matcher, store)``.
+    """
+    fs = cfg["signal"]["fs"]
+    engine_cfg = dict(cfg["engine"])
+    engine_name = engine_cfg.pop("name")
+
+    wm = WindowManager(
+        window_len=cfg["streaming"]["window_len"],
+        stride=cfg["streaming"]["stride"],
+        fs=fs,
+    )
+    engine = get_engine(engine_name, fs=fs, **engine_cfg)
+    matcher = ComponentMatcher(
+        distance=cfg["matcher"]["distance"],
+        freq_weight=cfg["matcher"]["freq_weight"],
+        fs=fs,
+        lookback=cfg["matcher"]["lookback"],
+        max_cost=cfg["matcher"]["max_cost"],
+        max_trajectories=cfg["streaming"]["max_components"],
+    )
+    store = TrajectoryStore(
+        max_components=cfg["streaming"]["max_components"],
+        max_len=signal_length,
+    )
+    return wm, engine, matcher, store
+
+
 def run(
     config_path: str | None = None,
     output_dir: str = "results/default",
-    config_dict: dict | None = None,  # WEEK6-FIX: accept pre-built config dict
+    config_dict: dict | None = None,
 ) -> None:
-    """Execute a full streaming experiment from a YAML config.
-
-    Parameters
-    ----------
-    config_path : str or None
-        Path to the YAML configuration file.
-    output_dir : str
-        Directory to write results into.
-    config_dict : dict or None, optional
-        Pre-built configuration dictionary.  Takes precedence over
-        *config_path* when both are given.
-    """
-    # WEEK6-FIX: support config_dict kwarg for programmatic use
+    """Execute a full streaming experiment from a YAML config."""
     if config_dict is not None:
         cfg = config_dict
     elif config_path is not None:
@@ -113,30 +125,8 @@ def run(
     N = len(signal)
     fs = cfg["signal"]["fs"]
 
-    wm = WindowManager(
-        window_len=cfg["streaming"]["window_len"],
-        stride=cfg["streaming"]["stride"],
-        fs=fs,
-    )
-    ssd = SSD(
-        fs=fs,
-        nmse_threshold=cfg["ssd"]["nmse_threshold"],
-        max_iter=cfg["ssd"]["max_iter"],
-    )
-    matcher = ComponentMatcher(
-        distance=cfg["matcher"]["distance"],
-        freq_weight=cfg["matcher"]["freq_weight"],
-        fs=fs,
-        lookback=cfg["matcher"]["lookback"],
-        max_cost=cfg["matcher"]["max_cost"],
-        max_trajectories=cfg["streaming"]["max_components"],
-    )
-    store = TrajectoryStore(
-        max_components=cfg["streaming"]["max_components"],
-        max_len=N,
-    )
+    wm, engine, matcher, store = build_pipeline(cfg, signal_length=N)
 
-    # WEEK6-METRICS-FIX: cross-window state persists between windows
     prev_components: list[np.ndarray] | None = None
     prev_S: np.ndarray | None = None
     window_idx = 0
@@ -144,8 +134,6 @@ def run(
     max_components = cfg["streaming"]["max_components"]
 
     metrics_rows: list[dict] = []
-
-    from src.ssd.ssa import svd_decompose  # WEEK6-METRICS-FIX
 
     logger.info(
         "Starting experiment: N=%d, window=%d, stride=%d",
@@ -157,15 +145,12 @@ def run(
         if window is None:
             continue
 
-        components = ssd.fit(window)
+        components = engine.fit(window)
         components_no_res = components[:-1]
 
-        # Stateful multi-window matcher: returns persistent traj_ids
         matching: dict[int, int | None] = dict(
             matcher.match_stateful(components_no_res, overlap)
         )
-        # Legacy per-window mapping for energy_continuity /
-        # matching_confidence (curr_idx -> idx-in-prev-window or None).
         prev_window_matching = matcher.previous_window_mapping()
 
         window_start = sample_idx - wm.window_len + 1
@@ -174,7 +159,6 @@ def run(
             matching, overlap,
         )
 
-        # WEEK6-METRICS-FIX: QRF is intra-window (no residual)
         recon = (
             np.sum(components_no_res, axis=0)
             if components_no_res
@@ -182,21 +166,18 @@ def run(
         )
         qrf_val = qrf(window, recon)
 
-        # WEEK6-METRICS-FIX: singular_value_drift (cross-window)
-        M_win = ssd._choose_window_length(window)
-        X_win = SSD._build_trajectory_matrix(window, M_win)
+        # Engine-agnostic SVD drift: decompose a Hankel trajectory
+        # matrix of the raw window.
+        L = max(2, len(window) // 3)
+        X_win = build_trajectory_matrix(window, L)
         _, S_curr, _ = svd_decompose(X_win)
-        svd_drift = singular_value_drift(
-            S_curr, prev_S,
-        )
+        svd_drift = singular_value_drift(S_curr, prev_S)
         prev_S = S_curr
 
-        # WEEK6-METRICS-FIX: energy_continuity (cross-window)
         ec_val = energy_continuity(
             components_no_res, prev_components, prev_window_matching,
         )
 
-        # WEEK6-METRICS-FIX: matching_confidence
         if prev_components is not None and prev_window_matching:
             cost = matcher.build_cost_matrix(
                 prev_components, components_no_res,
@@ -206,19 +187,12 @@ def run(
         else:
             mc_val = float("nan")
 
-        # WEEK6-METRICS-FIX: per-component dominant frequency
         fmax_row: dict[str, float] = {}
         for ci, comp in enumerate(components_no_res):
-            col = f"f_max_c{ci}"
-            fmax_row[col] = dominant_frequency(
-                comp, fs=fs,
-            )
-        for ci in range(
-            len(components_no_res), max_components,
-        ):
+            fmax_row[f"f_max_c{ci}"] = dominant_frequency(comp, fs=fs)
+        for ci in range(len(components_no_res), max_components):
             fmax_row[f"f_max_c{ci}"] = float("nan")
 
-        # WEEK6-METRICS-FIX: metrics row with correct scopes
         row: dict[str, object] = {
             "window_index": window_idx,
             "qrf": qrf_val,
@@ -232,29 +206,22 @@ def run(
         prev_components = components_no_res
         window_idx += 1
 
-    # WEEK6-METRICS-FIX: compute global aggregates after run
-    import json as _json
-
-    import pandas as _pd
-
-    # WEEK6-METRICS-FIX: compute global aggregates after run
     summary: dict[str, float] = {}
     if metrics_rows:
-        metrics_df = _pd.DataFrame(metrics_rows)
+        metrics_df = pd.DataFrame(metrics_rows)
         ci = 0
         while True:
             col = f"f_max_c{ci}"
             if col not in metrics_df.columns:
                 break
-            fd = freq_drift_aggregate(
+            summary[f"freq_drift_c{ci}"] = freq_drift_aggregate(
                 metrics_df[col].values,
             )
-            summary[f"freq_drift_c{ci}"] = fd
             ci += 1
 
     summary_path = out / "run_summary.json"
     with open(summary_path, "w") as fh:
-        _json.dump(
+        json.dump(
             {k: (None if np.isnan(v) else v)
              for k, v in summary.items()},
             fh, indent=2,
@@ -263,7 +230,6 @@ def run(
 
     if cfg["output"].get("save_metrics", True) and metrics_rows:
         csv_path = out / "metrics.csv"
-        # WEEK6-METRICS-FIX: gather superset of keys across rows
         all_keys: dict[str, None] = {}
         for r in metrics_rows:
             for k in r:
@@ -271,8 +237,7 @@ def run(
         fieldnames = list(all_keys)
         with open(csv_path, "w", newline="") as fh:
             writer = csv.DictWriter(
-                fh, fieldnames=fieldnames,
-                extrasaction="ignore",
+                fh, fieldnames=fieldnames, extrasaction="ignore",
             )
             writer.writeheader()
             writer.writerows(metrics_rows)
@@ -288,8 +253,7 @@ def run(
         logger.info("Saved trajectories to %s", npz_path)
 
     logger.info(
-        "Experiment complete: %d windows processed.",
-        window_idx,
+        "Experiment complete: %d windows processed.", window_idx,
     )
 
 
@@ -300,20 +264,10 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     parser = argparse.ArgumentParser(
-        description="Run a streaming SSD experiment.",
+        description="Run a streaming decomposition experiment.",
     )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        required=True,
-        help="Directory to save results.",
-    )
+    parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--output-dir", type=str, required=True)
     args = parser.parse_args()
     run(args.config, args.output_dir)
 

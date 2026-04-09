@@ -32,9 +32,10 @@ pytest tests/ -v
 
 | Module | Purpose |
 |---|---|
-| `src/ssd/core.py` | Full SSD algorithm (Bonizzi et al. 2014) |
-| `src/ssd/ssa.py` | Base SSA, autoSSA with hierarchical grouping |
-| `src/ssd/svd_update.py` | Rank-1 USSA update skeleton (stub) |
+| `src/engines/base.py` | `DecompositionEngine` Strategy interface + factory |
+| `src/engines/ssd.py` | Full SSD algorithm (Bonizzi et al. 2014) |
+| `src/engines/ssa.py` | Base SSA, autoSSA with hierarchical grouping |
+| `src/engines/svd_update.py` | Rank-1 USSA update skeleton (stub) |
 | `src/streaming/window_manager.py` | Circular buffer + stride logic |
 | `src/streaming/component_matcher.py` | Hungarian matching across windows |
 | `src/streaming/trajectory_store.py` | Rolling component trajectory management |

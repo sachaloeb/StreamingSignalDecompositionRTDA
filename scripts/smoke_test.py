@@ -23,9 +23,9 @@ import numpy as np
 def _import_check() -> tuple[bool, str]:
     """Import all public modules and report failures."""
     modules = [
-        ("src.ssd.core", "SSD"),
-        ("src.ssd.ssa", "auto_ssa"),
-        ("src.ssd.svd_update", "RankOneUpdater"),
+        ("src.engines.ssd", "SSD"),
+        ("src.engines.ssa", "auto_ssa"),
+        ("src.engines.svd_update", "RankOneUpdater"),
         ("src.streaming.window_manager", "WindowManager"),
         ("src.streaming.component_matcher", "ComponentMatcher"),
         ("src.streaming.trajectory_store", "TrajectoryStore"),

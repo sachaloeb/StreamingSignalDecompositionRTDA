@@ -19,7 +19,7 @@ import pytest
 
 from experiments.synthetic.generators import chirp_plus_sinusoid
 from experiments.run_experiment import run
-from src.ssd.core import SSD
+from src.engines.ssd import SSD
 from src.streaming.component_matcher import ComponentMatcher
 from src.streaming.trajectory_store import TrajectoryStore
 from src.streaming.window_manager import WindowManager

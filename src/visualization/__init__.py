@@ -15,7 +15,7 @@ from src.visualization.component_plots import (
 )
 from src.visualization.metrics_plots import plot_metrics_over_windows
 from src.visualization.pipeline_dashboard import plot_pipeline_dashboard
-from src.visualization.window_inspector import (  # WEEK6-FIX: add window inspection exports
+from src.visualization.window_inspector import (
     plot_nmse_over_time,
     plot_window_grid,
     plot_window_reconstruction,
@@ -28,7 +28,7 @@ __all__ = [
     "plot_matching_graph",
     "plot_metrics_over_windows",
     "plot_pipeline_dashboard",
-    "plot_window_reconstruction",  # WEEK6-FIX: new export
-    "plot_window_grid",  # WEEK6-FIX: new export
-    "plot_nmse_over_time",  # WEEK6-FIX: new export
+    "plot_window_reconstruction",
+    "plot_window_grid",
+    "plot_nmse_over_time",
 ]

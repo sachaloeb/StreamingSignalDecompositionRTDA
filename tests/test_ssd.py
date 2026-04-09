@@ -1,4 +1,4 @@
-"""Tests for src.ssd.core (SSD) and src.ssd.ssa (autoSSA)."""
+"""Tests for src.engines.ssd (SSD) and src.engines.ssa (autoSSA)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import pytest
 
 from experiments.synthetic.generators import two_sinusoids
 from src.metrics.stability import nmse, qrf
-from src.ssd.core import SSD
-from src.ssd.ssa import auto_ssa, build_trajectory_matrix
+from src.engines.ssd import SSD
+from src.engines.ssa import auto_ssa, build_trajectory_matrix
 
 
 class TestSSD:
