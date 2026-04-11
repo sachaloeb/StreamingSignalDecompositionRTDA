@@ -27,7 +27,7 @@ from src.visualization.window_inspector import (
     plot_window_reconstruction,
 )
 
-CONFIG_PATH = "experiments/configs/baseline.yaml"
+CONFIG_PATH = "configs/baseline.yaml"
 
 
 def main() -> None:
@@ -95,7 +95,7 @@ def main() -> None:
         )
 
     # ---- save outputs ----
-    out_dir = os.path.join("results", "window_inspection")
+    out_dir = '../results/window_inspection'
     os.makedirs(out_dir, exist_ok=True)
 
     plot_window_grid(
