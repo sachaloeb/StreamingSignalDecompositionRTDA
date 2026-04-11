@@ -15,12 +15,15 @@ from src.engines.ssa import (
     diagonal_averaging,
     svd_decompose,
 )
+from src.engines.rsvd import rsvd
 from src.engines.ssd import SSD
+from src.engines.ssd_incremental import IncrementalSSD
 from src.engines.svd_update import RankOneUpdater
 
 _REGISTRY: dict[str, type[DecompositionEngine]] = {
     "ssd": SSD,
     "ssa": SSA,
+    "ssd_incremental": IncrementalSSD,
 }
 
 
@@ -50,6 +53,7 @@ def get_engine(name: str, fs: float, **kwargs: object) -> DecompositionEngine:
 
 __all__ = [
     "DecompositionEngine",
+    "IncrementalSSD",
     "SSA",
     "SSD",
     "RankOneUpdater",
@@ -57,5 +61,6 @@ __all__ = [
     "build_trajectory_matrix",
     "diagonal_averaging",
     "get_engine",
+    "rsvd",
     "svd_decompose",
 ]

@@ -69,6 +69,9 @@ def diagonal_averaging(X: np.ndarray) -> np.ndarray:
 def svd_decompose(
     X: np.ndarray,
     rank: int | None = None,
+    method: str = "full",
+    rsvd_oversamples: int = 5,
+    rsvd_power_iter: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Singular value decomposition with optional rank truncation.
 
@@ -78,6 +81,14 @@ def svd_decompose(
         Matrix to decompose (L x K).
     rank : int or None, optional
         If given, retain only the top-*rank* singular triplets.
+    method : str, optional
+        ``"full"`` (default) uses ``np.linalg.svd``.
+        ``"randomized"`` uses the randomised SVD from
+        :func:`src.engines.rsvd.rsvd`.  Requires *rank* to be set.
+    rsvd_oversamples : int, optional
+        Oversampling parameter for randomised SVD.  Default 5.
+    rsvd_power_iter : int, optional
+        Power iteration steps for randomised SVD.  Default 1.
 
     Returns
     -------
@@ -90,8 +101,18 @@ def svd_decompose(
 
     Notes
     -----
-    Uses ``np.linalg.svd`` with ``full_matrices=False``.
+    When ``method="full"``, uses ``np.linalg.svd`` with
+    ``full_matrices=False``.
     """
+    if method == "randomized":
+        from src.engines.rsvd import rsvd
+        k = rank if rank is not None else min(X.shape)
+        return rsvd(
+            X, k=k,
+            n_oversamples=rsvd_oversamples,
+            n_power_iter=rsvd_power_iter,
+        )
+
     U, S, Vt = np.linalg.svd(X, full_matrices=False)
     if rank is not None:
         rank = min(rank, len(S))
