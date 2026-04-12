@@ -44,10 +44,13 @@ def _run_pipeline(
     """Run the streaming pipeline and return timing breakdown."""
     N = len(signal)
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
+    # ssd_rank1 requires stride; pass it through if not already supplied
+    if engine_name == "ssd_rank1" and "stride" not in engine_kwargs:
+        engine_kwargs = {**engine_kwargs, "stride": stride}
     engine = get_engine(engine_name, fs=fs, **engine_kwargs)
     matcher = ComponentMatcher(
-        distance="d_corr", fs=fs, lookback=3,
-        max_cost=0.5, max_trajectories=max_components,
+        distance="d_corr", fs=fs, lookback=10,
+        max_cost=0.6, max_trajectories=max_components,
     )
     store = TrajectoryStore(max_components=max_components, max_len=N)
 
@@ -140,8 +143,9 @@ def main() -> None:
         ("ssd", {}),
         ("ssd_incremental", {"use_rsvd": True}),
         ("ssd_incremental", {}),
+        ("ssd_rank1", {}),
     ]
-    labels = ["Baseline SSD", "rSVD-SSD (IncrementalSSD)", "IncrementalSSD (full SVD)"]
+    labels = ["Baseline SSD", "rSVD-SSD (IncrementalSSD)", "IncrementalSSD (full SVD)", "Rank-1 IncrementalSSD"]
 
     lines: list[str] = []
     lines.append("=" * 70)

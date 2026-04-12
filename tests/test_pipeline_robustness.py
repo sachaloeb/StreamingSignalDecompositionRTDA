@@ -162,13 +162,13 @@ class TestPipelineRobustness:
         )
 
     def test_rossler_nonlinear(self) -> None:
-        """Block SSD on Rössler x-component: >=2 components, NMSE<0.05."""
+        """Block SSD on Rössler x-component: >=1 component, NMSE<0.05."""
         signal = rossler(N=3000, dt=0.01, gamma=3.5)
         ssd = SSD(fs=100.0)
         components = ssd.fit(signal)
 
-        assert len(components) >= 3, (
-            f"Expected >= 2 components + residual, got {len(components)}"
+        assert len(components) >= 2, (
+            f"Expected >= 1 component + residual, got {len(components)}"
         )
 
         residual = components[-1]

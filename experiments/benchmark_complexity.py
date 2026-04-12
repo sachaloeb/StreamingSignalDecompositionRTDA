@@ -41,10 +41,12 @@ def _benchmark_config(
     """Run one benchmark configuration and return metrics."""
     N = len(signal)
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
+    if engine_name == "ssd_rank1" and "stride" not in engine_kwargs:
+        engine_kwargs = {**engine_kwargs, "stride": stride}
     engine = get_engine(engine_name, fs=fs, **engine_kwargs)
     matcher = ComponentMatcher(
-        distance="d_corr", fs=fs, lookback=3,
-        max_cost=0.5, max_trajectories=max_components,
+        distance="d_corr", fs=fs, lookback=10,
+        max_cost=0.6, max_trajectories=max_components,
     )
     store = TrajectoryStore(max_components=max_components, max_len=N)
 
@@ -101,11 +103,12 @@ def main() -> None:
         N=N, f_sin=50.0, f_start=10.0, f_end=150.0, fs=fs,
     )
 
-    window_lens = [100, 200, 400, 800, 1600]
+    window_lens = [100, 200, 400, 800, 1600, 3200, 6400]
     engine_configs = [
         ("ssd", "SSD", {}),
         ("ssd_incremental", "IncrementalSSD", {}),
         ("ssd_incremental", "rSVD-IncrementalSSD", {"use_rsvd": True}),
+        ("ssd_rank1", "RankOneIncrementalSSD", {}),
     ]
 
     results: list[dict[str, object]] = []

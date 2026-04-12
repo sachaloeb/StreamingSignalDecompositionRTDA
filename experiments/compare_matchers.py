@@ -55,7 +55,7 @@ def main() -> None:
         print(f"\n>>> Running strategy: {tag}")
 
         cfg = copy.deepcopy(base_cfg)
-        cfg["matcher"] = dict(strat)
+        cfg["matcher"].update(strat)
         out_dir = f"results/matcher_{tag}"
 
         run(config_dict=cfg, output_dir=out_dir)

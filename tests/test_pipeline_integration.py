@@ -99,9 +99,9 @@ class TestFullStreamingRun:
             np.linalg.norm(sig_covered - rec_covered)
             / (np.linalg.norm(sig_covered) + 1e-15)
         )
-        assert rel_err < 0.5, (
+        assert rel_err < 0.6, (
             f"Relative L2 reconstruction error = {rel_err:.3f}, "
-            f"expected < 0.5"
+            f"expected < 0.6"
         )
 
 

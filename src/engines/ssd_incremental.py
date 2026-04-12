@@ -13,15 +13,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.engines.base import DecompositionEngine
 from src.engines.ssa import svd_decompose
 from src.engines.ssd import SSD
-from src.metrics.similarity import subspace_angle
-from src.metrics.stability import nmse as compute_nmse
 
 
-class IncrementalSSD(DecompositionEngine):
+class IncrementalSSD(SSD):
     """Incremental SSD with warm-start SVD caching.
+
+    Inherits the full SSD extraction pipeline and overrides only the
+    SVD decomposition step (``_decompose_trajectory``) to inject
+    warm-start or randomised SVD.
 
     Parameters
     ----------
@@ -35,8 +36,8 @@ class IncrementalSSD(DecompositionEngine):
         Minimum overlap fraction required to attempt warm-start.
         Default 0.5.
     subspace_threshold : float, optional
-        Maximum principal angle (radians) between old and new
-        subspaces to allow warm-start.  Default 0.5 (~28 degrees).
+        Maximum relative projection residual to allow warm-start.
+        Default 0.5.
     use_rsvd : bool, optional
         If ``True``, use randomised SVD instead of full SVD.
         Default ``False``.
@@ -58,9 +59,12 @@ class IncrementalSSD(DecompositionEngine):
         rsvd_power_iter: int = 1,
         **kwargs: object,
     ) -> None:
-        super().__init__(fs=fs, **kwargs)
-        self.nmse_threshold = nmse_threshold
-        self.max_iter = max_iter
+        super().__init__(
+            fs=fs,
+            nmse_threshold=nmse_threshold,
+            max_iter=max_iter,
+            **kwargs,
+        )
         self.min_overlap_ratio = min_overlap_ratio
         self.subspace_threshold = subspace_threshold
         self.use_rsvd = use_rsvd
@@ -74,97 +78,14 @@ class IncrementalSSD(DecompositionEngine):
         self._prev_N: int = 0
 
     # ------------------------------------------------------------------
-    # public API
+    # Override SVD hook for warm-start
     # ------------------------------------------------------------------
 
-    def fit(self, x: np.ndarray) -> list[np.ndarray]:
-        """Decompose *x* into SSD components with warm-start caching.
-
-        Parameters
-        ----------
-        x : np.ndarray
-            Input signal of length N.
-
-        Returns
-        -------
-        list[np.ndarray]
-            [g1, g2, ..., gm, residual].
-        """
-        x = np.asarray(x, dtype=np.float64)
-        N = len(x)
-        x_energy = np.dot(x, x)
-        if x_energy < 1e-30:
-            return [x.copy()]
-
-        components: list[np.ndarray] = []
-        residual = x.copy()
-
-        for _ in range(self.max_iter):
-            M = SSD._choose_window_length(SSD(fs=self.fs), residual)
-            X = SSD._build_trajectory_matrix(residual, M)
-
-            U, S, Vt = self._decompose(X, M, N)
-
-            freqs = np.fft.rfftfreq(N, d=1.0 / self.fs)
-            psd = np.abs(np.fft.rfft(residual)) ** 2
-            f_max = float(freqs[np.argmax(psd)])
-
-            delta_f = SSD._fit_gaussian_model(psd, freqs)
-            sel = SSD._select_eigentriples(U, S, f_max, delta_f, self.fs, N)
-
-            if len(sel) == 0:
-                sel = [0]
-
-            X_sub = np.zeros_like(X)
-            for k in sel:
-                X_sub += S[k] * np.outer(U[:, k], Vt[k, :])
-            g = SSD._reconstruct_component(X_sub, N)
-
-            g = SSD._polish(SSD(fs=self.fs), g, residual, N)
-            a = SSD._scale_factor(g, residual)
-            g *= a
-
-            components.append(g)
-            residual = residual - g
-
-            cur_nmse = compute_nmse(residual, x)
-            if cur_nmse < self.nmse_threshold:
-                break
-
-        components.append(residual)
-
-        # Cache the SVD from the first iteration's trajectory matrix
-        # for warm-start in the next call.
-        M_cache = SSD._choose_window_length(SSD(fs=self.fs), x)
-        X_cache = SSD._build_trajectory_matrix(x, M_cache)
-        svd_method = "randomized" if self.use_rsvd else "full"
-        rank = min(M_cache, X_cache.shape[1]) if self.use_rsvd else None
-        self._prev_U, self._prev_S, self._prev_Vt = svd_decompose(
-            X_cache, rank=rank, method=svd_method,
-            rsvd_oversamples=self.rsvd_oversamples,
-            rsvd_power_iter=self.rsvd_power_iter,
-        )
-        self._prev_N = N
-
-        return components
-
-    # ------------------------------------------------------------------
-    # internals
-    # ------------------------------------------------------------------
-
-    def _decompose(
+    def _decompose_trajectory(
         self,
         X: np.ndarray,
-        M: int,
-        N: int,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """SVD with optional warm-start from cached factors.
-
-        If a cached decomposition exists, the overlap is sufficient,
-        and the subspace angle is small, project the new trajectory
-        matrix onto the cached subspace and refine.  Otherwise fall
-        back to a cold-start SVD.
-        """
+        """SVD with optional warm-start from cached factors."""
         svd_method = "randomized" if self.use_rsvd else "full"
         rank_param = min(X.shape) if self.use_rsvd else None
 
@@ -172,39 +93,62 @@ class IncrementalSSD(DecompositionEngine):
         if (
             self._prev_U is not None
             and self._prev_N > 0
+            and self._prev_U.shape[0] == X.shape[0]
+            and self._prev_Vt.shape[1] == X.shape[1]
         ):
-            # Check dimensional compatibility
-            if (
-                self._prev_U.shape[0] == X.shape[0]
-                and self._prev_Vt.shape[1] == X.shape[1]
-            ):
-                # Compute subspace angle to decide if warm-start is viable
-                # Use a quick rank-matched comparison
-                r_prev = self._prev_U.shape[1]
-                r_curr_max = min(X.shape)
+            # Project X onto cached left subspace
+            B = self._prev_U.T @ X
+            X_proj = self._prev_U @ B
+            residual_norm = np.linalg.norm(X - X_proj, "fro")
+            total_norm = np.linalg.norm(X, "fro")
 
-                # Project X onto the cached left subspace
-                B = self._prev_U.T @ X  # (r_prev, K)
-                X_proj = self._prev_U @ B
-                residual_norm = np.linalg.norm(X - X_proj, 'fro')
-                total_norm = np.linalg.norm(X, 'fro')
+            if total_norm > 1e-14:
+                relative_residual = residual_norm / total_norm
+            else:
+                relative_residual = 1.0
 
-                if total_norm > 1e-14:
-                    relative_residual = residual_norm / total_norm
-                else:
-                    relative_residual = 1.0
-
-                # If the old subspace captures most of the new matrix,
-                # use it as initialisation
-                if relative_residual < self.subspace_threshold:
-                    # Refine: compute SVD of B (small matrix)
-                    U_b, S_b, Vt_b = np.linalg.svd(B, full_matrices=False)
-                    U_warm = self._prev_U @ U_b
-                    return U_warm, S_b, Vt_b
+            if relative_residual < self.subspace_threshold:
+                U_b, S_b, Vt_b = np.linalg.svd(B, full_matrices=False)
+                U_warm = self._prev_U @ U_b
+                return U_warm, S_b, Vt_b
 
         # Cold-start fallback
         return svd_decompose(
-            X, rank=rank_param, method=svd_method,
+            X,
+            rank=rank_param,
+            method=svd_method,
             rsvd_oversamples=self.rsvd_oversamples,
             rsvd_power_iter=self.rsvd_power_iter,
         )
+
+    # ------------------------------------------------------------------
+    # Override fit to cache SVD factors after each call
+    # ------------------------------------------------------------------
+
+    def fit(self, x: np.ndarray) -> list[np.ndarray]:
+        """Decompose *x* with warm-start SVD caching.
+
+        Delegates to ``SSD.fit`` (which calls ``_decompose_trajectory``
+        through the polish loop) and then caches the SVD factors of the
+        mean-removed full window for the next call.
+        """
+        result = super().fit(x)
+
+        # Cache SVD of the mean-removed window for warm-start in next call
+        x = np.asarray(x, dtype=np.float64)
+        x_zm = x - np.mean(x)
+        N = len(x)
+        M_cache = self._choose_window_length(x_zm)
+        X_cache = self._build_trajectory_matrix(x_zm, M_cache)
+        svd_method = "randomized" if self.use_rsvd else "full"
+        rank = min(M_cache, X_cache.shape[1]) if self.use_rsvd else None
+        self._prev_U, self._prev_S, self._prev_Vt = svd_decompose(
+            X_cache,
+            rank=rank,
+            method=svd_method,
+            rsvd_oversamples=self.rsvd_oversamples,
+            rsvd_power_iter=self.rsvd_power_iter,
+        )
+        self._prev_N = N
+
+        return result

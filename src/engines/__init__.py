@@ -18,12 +18,14 @@ from src.engines.ssa import (
 from src.engines.rsvd import rsvd
 from src.engines.ssd import SSD
 from src.engines.ssd_incremental import IncrementalSSD
+from src.engines.ssd_rank1 import RankOneIncrementalSSD
 from src.engines.svd_update import RankOneUpdater
 
 _REGISTRY: dict[str, type[DecompositionEngine]] = {
     "ssd": SSD,
     "ssa": SSA,
     "ssd_incremental": IncrementalSSD,
+    "ssd_rank1": RankOneIncrementalSSD,
 }
 
 
@@ -54,6 +56,7 @@ def get_engine(name: str, fs: float, **kwargs: object) -> DecompositionEngine:
 __all__ = [
     "DecompositionEngine",
     "IncrementalSSD",
+    "RankOneIncrementalSSD",
     "SSA",
     "SSD",
     "RankOneUpdater",

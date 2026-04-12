@@ -138,4 +138,5 @@ results/
 *.png
 *.json
 CLAUDE.md
+matlab_code-SSD
 # Config templates are tracked (experiments/configs/*.yaml)
