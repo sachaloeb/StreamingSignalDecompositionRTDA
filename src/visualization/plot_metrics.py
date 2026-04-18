@@ -1,9 +1,8 @@
 """Plot streaming SSA metrics from a results directory.
 
-Produces a 3-panel figure:
+Produces a 2-panel figure:
   1. Singular Value Drift over Windows  (cross-window)
-  2. Dominant Frequency per Component   (per-window)
-  3. Post-Hoc freq_drift Aggregate      (bar chart)
+  2. Freq Drift per Trajectory          (bar chart, one bar per unique trajectory)
 
 Usage
 -----
@@ -150,81 +149,7 @@ def _plot_sv_drift(
 
 
 # ------------------------------------------------------------------
-# 3. Panel 2: Dominant Frequency Trajectories
-# ------------------------------------------------------------------
-
-
-def _plot_freq_trajectories(
-    ax: plt.Axes,
-    df: pd.DataFrame,
-) -> None:
-    """Render panel 2: f_max_cK columns over all windows.
-
-    Parameters
-    ----------
-    ax : matplotlib Axes
-    df : pd.DataFrame
-        Must contain ``window_index`` and zero or more
-        ``f_max_cK`` columns.
-    """
-    comp_cols = sorted(
-        [c for c in df.columns
-         if re.fullmatch(r"f_max_c\d+", c)],
-        key=lambda c: int(c.split("f_max_c")[1]),
-    )
-
-    if not comp_cols:
-        ax.text(
-            0.5, 0.5, "No f_max columns found",
-            transform=ax.transAxes, ha="center", va="center",
-            fontsize=9, color="gray", fontstyle="italic",
-        )
-        ax.set_title(
-            "Dominant Frequency per Component over Windows"
-        )
-        ax.set_xlabel("Window index")
-        ax.set_ylabel("Dominant frequency (Hz)")
-        return
-
-    wins = df["window_index"].values
-    n = len(df)
-    step = max(1, n // 40)
-    cmap = plt.cm.tab10
-
-    for i, col in enumerate(comp_cols):
-        k = int(col.split("f_max_c")[1])
-        vals = pd.to_numeric(
-            df[col], errors="coerce"
-        ).values.astype(float)
-        ax.plot(
-            wins, vals,
-            color=cmap(k % 10),
-            label=f"Component {k}",
-            marker="o", markersize=3,
-            markevery=step, linewidth=1.0,
-        )
-
-    ax.set_xlabel("Window index")
-    ax.set_ylabel("Dominant frequency (Hz)")
-    ax.grid(axis="both", alpha=0.3, linestyle=":")
-
-    if len(comp_cols) == 1:
-        k0 = int(comp_cols[0].split("f_max_c")[1])
-        ax.set_title(
-            "Dominant Frequency over Windows  "
-            f"(Component {k0})"
-        )
-    else:
-        ax.set_title(
-            "Dominant Frequency per Component over Windows"
-        )
-        ax.legend(
-            loc="upper right", fontsize=8, framealpha=0.7,
-        )
-
-
-# ------------------------------------------------------------------
-# 4. Panel 3: Post-Hoc freq_drift Aggregate
+# 3. Panel 2: freq_drift per trajectory (bar chart)
 # ------------------------------------------------------------------
 
 
@@ -232,7 +157,7 @@ def _plot_freq_drift_bar(
     ax: plt.Axes,
     summary: dict,
 ) -> None:
-    """Render panel 3: horizontal bar chart of freq_drift_cK.
+    """Render panel 2: horizontal bar chart of freq_drift_tK.
 
     Parameters
     ----------
@@ -242,8 +167,8 @@ def _plot_freq_drift_bar(
     """
     drift_keys = sorted(
         [k for k in summary
-         if re.fullmatch(r"freq_drift_c\d+", k)],
-        key=lambda k: int(k.split("freq_drift_c")[1]),
+         if re.fullmatch(r"freq_drift_t\d+", k)],
+        key=lambda k: int(k.split("freq_drift_t")[1]),
     )
 
     if not drift_keys:
@@ -264,7 +189,7 @@ def _plot_freq_drift_bar(
     values: list[float] = []
     k_indices: list[int] = []
     for key in drift_keys:
-        k = int(key.split("freq_drift_c")[1])
+        k = int(key.split("freq_drift_t")[1])
         k_indices.append(k)
         labels.append(f"C{k}")
         raw = summary[key]
@@ -323,14 +248,14 @@ def _plot_freq_drift_bar(
     ax.set_xlabel("Freq drift  Var_t[f_max] (Hz²)")
     ax.set_ylabel("Component")
     ax.set_title(
-        "Post-Hoc freq_drift Aggregate  "
-        "(global Var_t[f_max] per component)"
+        "Freq Drift per Trajectory  "
+        "(Var_t[f_max] — one bar per unique trajectory)"
     )
     ax.grid(axis="x", alpha=0.3, linestyle=":")
 
 
 # ------------------------------------------------------------------
-# 5. Main entry point
+# 4. Main entry point
 # ------------------------------------------------------------------
 
 
@@ -374,16 +299,12 @@ def plot_metrics(
     })
 
     fig, axes = plt.subplots(
-        3, 1, figsize=(10, 11),
-        gridspec_kw={"height_ratios": [1.0, 1.5, 0.8]},
+        2, 1, figsize=(10, 8),
+        gridspec_kw={"height_ratios": [1.0, 1.0]},
     )
 
-    axes[1].sharex(axes[0])
-    axes[0].tick_params(labelbottom=False)
-
     _plot_sv_drift(axes[0], df)
-    _plot_freq_trajectories(axes[1], df)
-    _plot_freq_drift_bar(axes[2], summary)
+    _plot_freq_drift_bar(axes[1], summary)
 
     output_name = results_dir.name
     fig.suptitle(

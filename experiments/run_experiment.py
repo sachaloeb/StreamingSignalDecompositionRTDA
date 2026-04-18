@@ -189,9 +189,11 @@ def run(
 
         fmax_row: dict[str, float] = {}
         for ci, comp in enumerate(components_no_res):
-            fmax_row[f"f_max_c{ci}"] = dominant_frequency(comp, fs=fs)
-        for ci in range(len(components_no_res), max_components):
-            fmax_row[f"f_max_c{ci}"] = float("nan")
+            traj_id = matching.get(ci, -1)
+            if traj_id >= 0:
+                fmax_row[f"f_max_t{traj_id}"] = dominant_frequency(
+                    comp, fs=fs
+                )
 
         row: dict[str, object] = {
             "window_index": window_idx,
@@ -209,15 +211,14 @@ def run(
     summary: dict[str, float] = {}
     if metrics_rows:
         metrics_df = pd.DataFrame(metrics_rows)
-        ci = 0
-        while True:
-            col = f"f_max_c{ci}"
-            if col not in metrics_df.columns:
-                break
-            summary[f"freq_drift_c{ci}"] = freq_drift_aggregate(
+        traj_cols = [
+            c for c in metrics_df.columns if c.startswith("f_max_t")
+        ]
+        for col in traj_cols:
+            tid = int(col[len("f_max_t"):])
+            summary[f"freq_drift_t{tid}"] = freq_drift_aggregate(
                 metrics_df[col].values,
             )
-            ci += 1
 
     summary_path = out / "run_summary.json"
     with open(summary_path, "w") as fh:
