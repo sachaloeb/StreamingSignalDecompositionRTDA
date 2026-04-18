@@ -271,13 +271,14 @@ class ComponentMatcher:
         p_seg: np.ndarray,
         c_seg: np.ndarray,
     ) -> float:
+        nyquist = self.fs / 2.0
         if self.distance == "d_corr":
             return float(d_corr(p_seg, c_seg))
         if self.distance == "d_freq":
-            return float(d_freq(p_seg, c_seg, fs=self.fs))
+            df = float(d_freq(p_seg, c_seg, fs=self.fs))
+            return df / nyquist if nyquist > 0 else 0.0
         dc = float(d_corr(p_seg, c_seg))
         df = float(d_freq(p_seg, c_seg, fs=self.fs))
-        nyquist = self.fs / 2.0
         df_norm = df / nyquist if nyquist > 0 else 0.0
         return (1.0 - self.freq_weight) * dc + self.freq_weight * df_norm
 

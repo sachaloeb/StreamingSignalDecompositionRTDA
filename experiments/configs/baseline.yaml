@@ -14,14 +14,14 @@ streaming:
 
 engine:
   name: ssd
-  nmse_threshold: 0.01
+  nmse_threshold: 0.02
   max_iter: 20
 
 matcher:
-  distance: hybrid
-  freq_weight: 0.5
+  distance: d_freq
+  freq_weight: 1.0
   lookback: 10
-  max_cost: 0.6
+  max_cost: 0.10
 
 output:
   save_trajectories: true
