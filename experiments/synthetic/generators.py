@@ -195,6 +195,52 @@ def component_onset(
     return x + onset
 
 
+def n_sinusoids(
+    N: int,
+    frequencies: list[float],
+    amplitudes: list[float] | None = None,
+    fs: float = 1.0,
+    snr_db: float | None = None,
+    seed: int = 42,
+) -> np.ndarray:
+    """Mixture of N sinusoids, optionally corrupted by AWGN.
+
+    Parameters
+    ----------
+    N : int
+        Number of samples.
+    frequencies : list[float]
+        Frequencies of each sinusoid in Hz.
+    amplitudes : list[float] or None, optional
+        Amplitude for each sinusoid.  Defaults to 1.0 for all.
+    fs : float, optional
+        Sampling frequency in Hz.  Default 1.0.
+    snr_db : float or None, optional
+        If given, AWGN is added at this SNR.
+    seed : int, optional
+        Random seed.  Default 42.
+
+    Returns
+    -------
+    np.ndarray
+        Signal of length *N*.
+    """
+    rng = np.random.default_rng(seed)
+    if amplitudes is None:
+        amplitudes = [1.0] * len(frequencies)
+    if len(amplitudes) != len(frequencies):
+        raise ValueError("frequencies and amplitudes must have the same length")
+    t = np.arange(N) / fs
+    x = sum(
+        a * np.sin(2.0 * np.pi * f * t)
+        for f, a in zip(frequencies, amplitudes)
+    )
+    x = np.asarray(x, dtype=np.float64)
+    if snr_db is not None:
+        x = _add_awgn(x, snr_db, rng)
+    return x
+
+
 # ------------------------------------------------------------------
 # helpers
 # ------------------------------------------------------------------

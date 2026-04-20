@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiments.synthetic.generators import chirp_plus_sinusoid
+from experiments.synthetic.generators import chirp_plus_sinusoid, n_sinusoids
 from src.engines import get_engine
 from src.streaming.component_matcher import ComponentMatcher
 from src.streaming.trajectory_store import TrajectoryStore
@@ -92,6 +92,117 @@ def _benchmark_config(
     }
 
 
+def _benchmark_components(
+    n_components_list: list[int],
+    engine_name: str,
+    window_len: int,
+    stride: int,
+    fs: float = 1000.0,
+    N: int = 10000,
+    snr_db: float | None = None,
+    **engine_kwargs: object,
+) -> list[dict[str, object]]:
+    """Sweep over number of sinusoidal components at fixed window size.
+
+    Frequencies are evenly spaced between 20 Hz and 400 Hz.
+
+    Parameters
+    ----------
+    n_components_list : list[int]
+        Numbers of sinusoidal components to test.
+    engine_name : str
+        Engine identifier for :func:`get_engine`.
+    window_len : int
+        Window length in samples.
+    stride : int
+        Stride in samples.
+    fs : float
+        Sampling frequency in Hz.
+    N : int
+        Signal length in samples.
+    snr_db : float or None
+        SNR for AWGN corruption; ``None`` means clean signal.
+    **engine_kwargs
+        Extra arguments forwarded to the engine constructor.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        One row per (n_components, engine) combination.
+    """
+    rows: list[dict[str, object]] = []
+    for n_comp in n_components_list:
+        freqs = list(np.linspace(20.0, 400.0, n_comp))
+        signal = n_sinusoids(N=N, frequencies=freqs, fs=fs, snr_db=snr_db)
+        row = _benchmark_config(
+            signal, engine_name, window_len, stride, fs=fs,
+            max_components=n_comp + 2, **engine_kwargs,
+        )
+        row["n_components"] = n_comp
+        row["snr_db"] = snr_db if snr_db is not None else float("inf")
+        rows.append(row)
+        print(
+            f"  n_comp={n_comp}, snr={snr_db}, "
+            f"mean={row['mean_time_per_window_s']:.4f}s/window"
+        )
+    return rows
+
+
+def _benchmark_noise(
+    snr_db_list: list[float | None],
+    engine_name: str,
+    window_len: int,
+    stride: int,
+    fs: float = 1000.0,
+    N: int = 10000,
+    n_components: int = 3,
+    **engine_kwargs: object,
+) -> list[dict[str, object]]:
+    """Sweep over SNR levels at fixed window size and component count.
+
+    Parameters
+    ----------
+    snr_db_list : list[float or None]
+        SNR values in dB to test; ``None`` means clean (no noise).
+    engine_name : str
+        Engine identifier for :func:`get_engine`.
+    window_len : int
+        Window length in samples.
+    stride : int
+        Stride in samples.
+    fs : float
+        Sampling frequency in Hz.
+    N : int
+        Signal length in samples.
+    n_components : int
+        Number of sinusoidal components in the test signal.
+    **engine_kwargs
+        Extra arguments forwarded to the engine constructor.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        One row per (snr_db, engine) combination.
+    """
+    rows: list[dict[str, object]] = []
+    freqs = list(np.linspace(20.0, 400.0, n_components))
+    for snr_db in snr_db_list:
+        signal = n_sinusoids(N=N, frequencies=freqs, fs=fs, snr_db=snr_db)
+        row = _benchmark_config(
+            signal, engine_name, window_len, stride, fs=fs,
+            max_components=n_components + 2, **engine_kwargs,
+        )
+        row["n_components"] = n_components
+        row["snr_db"] = snr_db if snr_db is not None else float("inf")
+        rows.append(row)
+        snr_label = f"{snr_db}dB" if snr_db is not None else "clean"
+        print(
+            f"  snr={snr_label}, "
+            f"mean={row['mean_time_per_window_s']:.4f}s/window"
+        )
+    return rows
+
+
 def main() -> None:
     """Run the benchmark sweep and generate outputs."""
     out_dir = ROOT / "results" / "benchmarks"
@@ -128,7 +239,7 @@ def main() -> None:
                 f"peak_mem={row['peak_memory_mib']:.2f} MiB"
             )
 
-    # Save CSV
+    # Save window-length sweep CSV
     csv_path = out_dir / "complexity_results.csv"
     fieldnames = [
         "engine", "label", "window_len", "stride", "n_windows",
@@ -141,8 +252,77 @@ def main() -> None:
         writer.writerows(results)
     print(f"\nResults saved to {csv_path}")
 
-    # Generate plots
+    # Generate window-length plots
     _plot_results(results, out_dir)
+
+    # ------------------------------------------------------------------
+    # Sweep 2: varying number of components (SSD engine, fixed window)
+    # ------------------------------------------------------------------
+    print("\n--- Component count sweep ---")
+    n_components_list = [1, 2, 3, 4, 5, 6]
+    comp_results: list[dict[str, object]] = []
+    for snr_db in [None, 20.0, 10.0]:
+        snr_label = f"{snr_db}dB" if snr_db is not None else "clean"
+        print(f"  SNR={snr_label}")
+        rows = _benchmark_components(
+            n_components_list,
+            engine_name="ssd",
+            window_len=300,
+            stride=150,
+            fs=fs,
+            N=N,
+            snr_db=snr_db,
+        )
+        for r in rows:
+            r["snr_label"] = snr_label
+        comp_results.extend(rows)
+
+    comp_csv = out_dir / "complexity_vs_components.csv"
+    comp_fieldnames = [
+        "engine", "n_components", "snr_db", "snr_label", "window_len",
+        "stride", "n_windows", "mean_time_per_window_s",
+        "std_time_per_window_s", "total_runtime_s", "peak_memory_mib",
+    ]
+    with open(comp_csv, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=comp_fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(comp_results)
+    print(f"Component sweep saved to {comp_csv}")
+    _plot_component_sweep(comp_results, out_dir)
+
+    # ------------------------------------------------------------------
+    # Sweep 3: varying noise level (SSD engine, fixed components)
+    # ------------------------------------------------------------------
+    print("\n--- Noise level sweep ---")
+    snr_db_list: list[float | None] = [None, 40.0, 30.0, 20.0, 10.0, 5.0]
+    noise_results: list[dict[str, object]] = []
+    for n_comp in [2, 4]:
+        print(f"  n_components={n_comp}")
+        rows = _benchmark_noise(
+            snr_db_list,
+            engine_name="ssd",
+            window_len=300,
+            stride=150,
+            fs=fs,
+            N=N,
+            n_components=n_comp,
+        )
+        for r in rows:
+            r["n_comp_label"] = str(n_comp)
+        noise_results.extend(rows)
+
+    noise_csv = out_dir / "complexity_vs_noise.csv"
+    noise_fieldnames = [
+        "engine", "n_components", "n_comp_label", "snr_db", "window_len",
+        "stride", "n_windows", "mean_time_per_window_s",
+        "std_time_per_window_s", "total_runtime_s", "peak_memory_mib",
+    ]
+    with open(noise_csv, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=noise_fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(noise_results)
+    print(f"Noise sweep saved to {noise_csv}")
+    _plot_noise_sweep(noise_results, out_dir)
 
 
 def _plot_results(
@@ -206,6 +386,80 @@ def _plot_results(
     plt.close(fig)
 
     print(f"Plots saved to {out_dir}")
+
+
+def _plot_component_sweep(
+    results: list[dict[str, object]],
+    out_dir: Path,
+) -> None:
+    """Plot mean time per window vs number of components, grouped by SNR."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    snr_labels: list[str] = []
+    for r in results:
+        lbl = str(r.get("snr_label", ""))
+        if lbl not in snr_labels:
+            snr_labels.append(lbl)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for lbl in snr_labels:
+        subset = [r for r in results if str(r.get("snr_label", "")) == lbl]
+        subset.sort(key=lambda r: int(r["n_components"]))
+        n_comps = np.array([r["n_components"] for r in subset], dtype=float)
+        times = np.array([r["mean_time_per_window_s"] for r in subset], dtype=float)
+        ax.plot(n_comps, times * 1000, "o-", label=f"SNR={lbl}")
+
+    ax.set_xlabel("Number of sinusoidal components")
+    ax.set_ylabel("Mean time per window (ms)")
+    ax.set_title("Decomposition Time vs Component Count")
+    ax.legend()
+    ax.grid(True, ls="--", alpha=0.5)
+    fig.tight_layout()
+    fig.savefig(out_dir / "time_vs_n_components.png", dpi=150)
+    plt.close(fig)
+    print(f"Component sweep plot saved to {out_dir / 'time_vs_n_components.png'}")
+
+
+def _plot_noise_sweep(
+    results: list[dict[str, object]],
+    out_dir: Path,
+) -> None:
+    """Plot mean time per window vs SNR, grouped by component count."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    n_comp_labels: list[str] = []
+    for r in results:
+        lbl = str(r.get("n_comp_label", ""))
+        if lbl not in n_comp_labels:
+            n_comp_labels.append(lbl)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for lbl in n_comp_labels:
+        subset = [r for r in results if str(r.get("n_comp_label", "")) == lbl]
+        subset.sort(key=lambda r: float(r["snr_db"]))
+        snrs = np.array([float(r["snr_db"]) for r in subset])
+        times = np.array([r["mean_time_per_window_s"] for r in subset], dtype=float)
+        x_labels = [
+            "clean" if s == float("inf") else f"{s:.0f}"
+            for s in snrs
+        ]
+        ax.plot(range(len(x_labels)), times * 1000, "o-", label=f"{lbl} components")
+        ax.set_xticks(range(len(x_labels)))
+        ax.set_xticklabels(x_labels)
+
+    ax.set_xlabel("SNR (dB)")
+    ax.set_ylabel("Mean time per window (ms)")
+    ax.set_title("Decomposition Time vs Noise Level")
+    ax.legend()
+    ax.grid(True, ls="--", alpha=0.5)
+    fig.tight_layout()
+    fig.savefig(out_dir / "time_vs_noise.png", dpi=150)
+    plt.close(fig)
+    print(f"Noise sweep plot saved to {out_dir / 'time_vs_noise.png'}")
 
 
 if __name__ == "__main__":
