@@ -1,0 +1,31 @@
+# OptimizedSSD (FWHM bandwidth) — drop-in replacement for ssd engine
+
+signal:
+  type: chirp_plus_sinusoid
+  N: 3000
+  fs: 1000.0
+  f_sin: 50.0
+  f_start: 10.0
+  f_end: 150.0
+  snr_db: 20.0
+
+streaming:
+  window_len: 300
+  stride: 150
+  max_components: 100
+
+engine:
+  name: ssd_optimized
+  spectral_method: fwhm
+  nmse_threshold: 0.02
+  max_iter: 20
+
+matcher:
+  distance: d_freq
+  freq_weight: 1.0
+  lookback: 10
+  max_cost: 0.10
+
+output:
+  save_trajectories: true
+  save_metrics: true

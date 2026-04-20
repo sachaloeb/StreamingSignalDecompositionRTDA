@@ -21,6 +21,7 @@ from repeated rank-1 modifications.
 from __future__ import annotations
 
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 
 
 class RankOneUpdater:
@@ -261,9 +262,8 @@ def _build_hankel(x: np.ndarray, L: int) -> np.ndarray:
     np.ndarray
         Trajectory matrix of shape (L, N - L + 1).
     """
-    N = len(x)
-    K = N - L + 1
-    X = np.empty((L, K), dtype=np.float64)
-    for i in range(L):
-        X[i, :] = x[i: i + K]
-    return X
+    x = np.asarray(x, dtype=np.float64)
+    itemsize = x.strides[0]
+    K = len(x) - L + 1
+    view = as_strided(x, shape=(L, K), strides=(itemsize, itemsize))
+    return np.ascontiguousarray(view, dtype=np.float64)

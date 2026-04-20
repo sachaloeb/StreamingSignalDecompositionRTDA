@@ -9,6 +9,7 @@ agglomerative clustering with the d_corr distance.
 from __future__ import annotations
 
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 from scipy.cluster.hierarchy import fcluster, linkage
 
 from src.engines.base import DecompositionEngine
@@ -33,12 +34,11 @@ def build_trajectory_matrix(
     np.ndarray
         Trajectory matrix of shape (L, K) where K = N - L + 1.
     """
-    N = len(x)
-    K = N - L + 1
-    X = np.empty((L, K), dtype=np.float64)
-    for i in range(L):
-        X[i, :] = x[i: i + K]
-    return X
+    x = np.asarray(x, dtype=np.float64)
+    itemsize = x.strides[0]
+    K = len(x) - L + 1
+    X = as_strided(x, shape=(L, K), strides=(itemsize, itemsize))
+    return np.ascontiguousarray(X, dtype=np.float64)
 
 
 def diagonal_averaging(X: np.ndarray) -> np.ndarray:
@@ -56,13 +56,25 @@ def diagonal_averaging(X: np.ndarray) -> np.ndarray:
     """
     L, K = X.shape
     N = L + K - 1
+
+    # Vectorized scatter-add via pre-computed anti-diagonal indices.
+    i_idx = np.arange(L, dtype=np.intp)[:, None]   # (L, 1)
+    j_idx = np.arange(K, dtype=np.intp)[None, :]   # (1, K)
+    diag_idx = (i_idx + j_idx).ravel()              # (L*K,)
     y = np.zeros(N, dtype=np.float64)
-    counts = np.zeros(N, dtype=np.float64)
-    for i in range(L):
-        for j in range(K):
-            y[i + j] += X[i, j]
-            counts[i + j] += 1.0
-    counts = np.maximum(counts, 1e-12)
+    np.add.at(y, diag_idx, X.ravel())
+
+    # Analytic counts — no loop, no second np.add.at.
+    # For a standard (L, K) Hankel matrix with N = L + K - 1:
+    #   n in [0,           min(L,K)-1]:   counts[n] = n + 1
+    #   n in [min(L,K),    max(L,K)-1]:   counts[n] = min(L, K)
+    #   n in [max(L,K),    N-1]:          counts[n] = N - n
+    counts = np.empty(N, dtype=np.float64)
+    lo, hi = min(L, K), max(L, K)
+    n = np.arange(N, dtype=np.float64)
+    counts = np.where(n < lo, n + 1.0,
+                      np.where(n < hi, float(lo), N - n))
+
     return y / counts
 
 
