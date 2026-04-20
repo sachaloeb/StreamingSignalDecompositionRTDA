@@ -67,7 +67,7 @@ def test_metrics_csv_temporal_consistency() -> None:
         "for all windows after t=0"
     )
 
-    finite_fmax = df["f_max_c0"].dropna()
+    finite_fmax = df["f_max_t0"].dropna()
     assert len(finite_fmax) > 0
     assert (finite_fmax > 1.0).all(), (
         "f_max_c0 must log raw frequency in Hz, "
@@ -80,6 +80,6 @@ def test_run_summary_contains_freq_drift() -> None:
     summary_path = Path(f"{OUTPUT_DIR}/run_summary.json")
     assert summary_path.exists()
     summary = json.loads(summary_path.read_text())
-    assert "freq_drift_c0" in summary
-    val = summary["freq_drift_c0"]
+    assert "freq_drift_t0" in summary
+    val = summary["freq_drift_t0"]
     assert np.isfinite(val) or np.isnan(val)
