@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.engines.ssd import SSD
 from src.engines.ssd_optimized import OptimizedSSD
 from src.metrics.stability import qrf, nmse
 from src.streaming.window_manager import WindowManager
@@ -46,7 +47,7 @@ from experiments.synthetic.generators import (
 # Shared utilities
 # ---------------------------------------------------------------------------
 
-METHODS: list[str] = ["fwhm", "moment", "gaussian"]
+METHODS: list[str] = ["baseline", "fwhm", "moment", "gaussian"]
 
 
 def _compute_psd(x: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
@@ -81,7 +82,9 @@ def _call_estimator_safe(
 ) -> float:
     """Call estimator and return NaN on any exception (never abort the eval)."""
     try:
-        if method == "fwhm":
+        if method == "baseline":
+            return float(SSD._fit_gaussian_model(psd, freqs))
+        elif method == "fwhm":
             return float(OptimizedSSD._estimate_bandwidth_fwhm(psd, freqs))
         elif method == "moment":
             return float(OptimizedSSD._estimate_bandwidth_moment(psd, freqs))
@@ -101,10 +104,11 @@ def _run_streaming_pipeline(
     stride: int,
 ) -> dict[str, object]:
     """Run the streaming pipeline; return per-window QRF and NMSE lists."""
-    engine = OptimizedSSD(fs=fs, spectral_method=method)
+    engine: SSD = SSD(fs=fs) if method == "baseline" else OptimizedSSD(fs=fs, spectral_method=method)
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
     qrf_vals: list[float] = []
     nmse_vals: list[float] = []
+    n_components_vals: list[int] = []
     n_windows = 0
 
     for sample in signal:
@@ -114,6 +118,8 @@ def _run_streaming_pipeline(
         components = engine.fit(window)
         components_no_res = components[:-1]
         residual_comp = components[-1]
+
+        n_components_vals.append(len(components_no_res))
 
         recon = (
             np.sum(components_no_res, axis=0)
@@ -131,6 +137,7 @@ def _run_streaming_pipeline(
     return {
         "qrf_vals": qrf_vals,
         "nmse_vals": nmse_vals,
+        "n_components_vals": n_components_vals,
         "n_windows": n_windows,
     }
 
@@ -331,9 +338,14 @@ def run_level2(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
             result = _run_streaming_pipeline(signal, method, fs, window_len, stride)
             qrfs = result["qrf_vals"]
             nmses = result["nmse_vals"]
+            ncomps = result["n_components_vals"]
             median_qrf = float(np.median(qrfs)) if qrfs else float("nan")
             p10_qrf = float(np.percentile(qrfs, 10)) if qrfs else float("nan")
             mean_nmse = float(np.mean(nmses)) if nmses else float("nan")
+            mean_ncomp = float(np.mean(ncomps)) if ncomps else float("nan")
+            std_ncomp = float(np.std(ncomps)) if ncomps else float("nan")
+            min_ncomp = int(np.min(ncomps)) if ncomps else 0
+            max_ncomp = int(np.max(ncomps)) if ncomps else 0
 
             rows.append({
                 "signal": sig_name,
@@ -342,11 +354,20 @@ def run_level2(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
                 "median_qrf_db": round(median_qrf, 3) if np.isfinite(median_qrf) else float("nan"),
                 "p10_qrf_db": round(p10_qrf, 3) if np.isfinite(p10_qrf) else float("nan"),
                 "mean_nmse": round(mean_nmse, 6) if np.isfinite(mean_nmse) else float("nan"),
+                "mean_ncomp": round(mean_ncomp, 2) if np.isfinite(mean_ncomp) else float("nan"),
+                "std_ncomp": round(std_ncomp, 2) if np.isfinite(std_ncomp) else float("nan"),
+                "min_ncomp": min_ncomp,
+                "max_ncomp": max_ncomp,
                 "n_windows": result["n_windows"],
             })
-            print(f"    {method:>8}: median QRF={median_qrf:.2f} dB, mean NMSE={mean_nmse:.4f}")
+            print(
+                f"    {method:>8}: median QRF={median_qrf:.2f} dB, "
+                f"mean NMSE={mean_nmse:.4f}, "
+                f"components={mean_ncomp:.1f}±{std_ncomp:.1f} [{min_ncomp}–{max_ncomp}]"
+            )
 
-    fieldnames = ["signal", "snr_db", "method", "median_qrf_db", "p10_qrf_db", "mean_nmse", "n_windows"]
+    fieldnames = ["signal", "snr_db", "method", "median_qrf_db", "p10_qrf_db", "mean_nmse",
+                  "mean_ncomp", "std_ncomp", "min_ncomp", "max_ncomp", "n_windows"]
     csv_path = out_dir / "level2_system_quality.csv"
     _write_csv(csv_path, fieldnames, rows)
     print(f"  Saved {csv_path}")
@@ -380,6 +401,16 @@ def run_level2(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
             best_per_signal[sig] = r["method"]
 
     for line in _pivot_table(pivot_rows, "signal", "method", "val", ".2f"):
+        print("  " + line)
+
+    # Pivot: mean component count by signal × method (clean signals)
+    comp_pivot_rows = [
+        {"signal": r["signal"], "method": r["method"], "val": r["mean_ncomp"]}
+        for r in clean_rows
+    ]
+    print("\n  Pivot: mean components/window by signal × method (clean signals)")
+    print("  (baseline = ground truth; deviations indicate over/under-decomposition)")
+    for line in _pivot_table(comp_pivot_rows, "signal", "method", "val", ".2f"):
         print("  " + line)
 
     # Mark best per signal
@@ -511,18 +542,27 @@ def run_level4(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
         N_pipe = 300
         stride_pipe = 150
         signal_pipe = _make_sinusoid_noisy(f0, fs, 5000, snr_db, seed=1)
-        engine = OptimizedSSD(fs=fs, spectral_method=method)
+        engine: SSD = SSD(fs=fs) if method == "baseline" else OptimizedSSD(fs=fs, spectral_method=method)
         wm = WindowManager(window_len=N_pipe, stride=stride_pipe, fs=fs)
 
         # Instrument bandwidth estimation at instance level
         bw_times_pipe: list[float] = []
         window_times: list[float] = []
 
-        if method == "fwhm":
+        if method == "baseline":
+            _orig = SSD._fit_gaussian_model
+
+            def _timed_bw(*a):  # type: ignore[no-untyped-def]
+                _t0 = time.perf_counter()
+                r = _orig(*a)
+                bw_times_pipe.append(time.perf_counter() - _t0)
+                return r
+
+            engine._fit_gaussian_model = _timed_bw  # type: ignore[assignment]
+        elif method == "fwhm":
             _orig = OptimizedSSD._estimate_bandwidth_fwhm
 
             def _timed_bw(*a):  # type: ignore[no-untyped-def]
-                """Timed wrapper for fwhm bandwidth estimation."""
                 _t0 = time.perf_counter()
                 r = _orig(*a)
                 bw_times_pipe.append(time.perf_counter() - _t0)
@@ -533,7 +573,6 @@ def run_level4(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
             _orig = OptimizedSSD._estimate_bandwidth_moment
 
             def _timed_bw(*a):  # type: ignore[no-untyped-def]
-                """Timed wrapper for moment bandwidth estimation."""
                 _t0 = time.perf_counter()
                 r = _orig(*a)
                 bw_times_pipe.append(time.perf_counter() - _t0)
@@ -544,7 +583,6 @@ def run_level4(out_dir: Path) -> tuple[list[dict], dict[str, float]]:
             _orig = OptimizedSSD._fit_gaussian_with_jacobian
 
             def _timed_bw(*a):  # type: ignore[no-untyped-def]
-                """Timed wrapper for gaussian bandwidth estimation."""
                 _t0 = time.perf_counter()
                 r = _orig(*a)
                 bw_times_pipe.append(time.perf_counter() - _t0)
@@ -625,13 +663,14 @@ def _print_verdict(
         for m, vals in method_floor.items()
     }
 
-    # Determine recommended method: best combination of QRF and latency.
+    # Determine recommended method among optimized variants (baseline = ground truth reference).
     # Score = QRF_normalised - latency_normalised (higher QRF better, lower latency better)
-    max_qrf = max((v for v in method_mean_qrf.values() if np.isfinite(v)), default=0.0)
-    min_us = min((v for v in method_mean_us.values() if np.isfinite(v)), default=1.0)
-    max_us = max((v for v in method_mean_us.values() if np.isfinite(v)), default=1.0)
+    optimized_methods = [m for m in METHODS if m != "baseline"]
+    max_qrf = max((method_mean_qrf[m] for m in optimized_methods if np.isfinite(method_mean_qrf.get(m, float("nan")))), default=0.0)
+    min_us = min((method_mean_us[m] for m in optimized_methods if np.isfinite(method_mean_us.get(m, float("nan")))), default=1.0)
+    max_us = max((method_mean_us[m] for m in optimized_methods if np.isfinite(method_mean_us.get(m, float("nan")))), default=1.0)
     scores: dict[str, float] = {}
-    for m in METHODS:
+    for m in optimized_methods:
         qrf_v = method_mean_qrf.get(m, float("nan"))
         us_v = method_mean_us.get(m, float("nan"))
         if not (np.isfinite(qrf_v) and np.isfinite(us_v)):
@@ -642,7 +681,7 @@ def _print_verdict(
         us_norm = 1.0 - (us_v - min_us) / us_range if us_range > 0 else 1.0
         scores[m] = qrf_norm + us_norm
 
-    best_method = max(scores, key=lambda m: scores[m])
+    best_method = max(optimized_methods, key=lambda m: scores.get(m, float("-inf")))
     best_qrf = method_mean_qrf.get(best_method, float("nan"))
     best_us = method_mean_us.get(best_method, float("nan"))
 
@@ -658,23 +697,24 @@ def _print_verdict(
     print("  BANDWIDTH ESTIMATION METHOD EVALUATION — SUMMARY VERDICT")
     print("  ══════════════════════════════════════════════════════════")
     print()
-    print("  Reconstruction quality (median QRF, averaged across signals):")
+    def _fmt_row(m: str, qrf_v: float, us_v: float, floor_v: float) -> str:
+        tag = "  [GT]" if m == "baseline" else "      "
+        label = _METHOD_LABEL.get(m, m)
+        qrf_s = f"{qrf_v:.1f}" if np.isfinite(qrf_v) else " nan"
+        us_s = f"{us_v:.1f}" if np.isfinite(us_v) else " nan"
+        fl_s = f"{floor_v:.2f}" if np.isfinite(floor_v) else " nan"
+        return f"  {tag} {label:<18}: QRF={qrf_s} dB  latency={us_s} µs  floor={fl_s}"
+
+    print("  Reconstruction quality, latency, and floor compliance:")
+    print(f"  {'':6} {'method':<18}  {'median QRF':>12}  {'µs/call':>12}  {'floor frac':>12}")
+    print("  " + "-" * 65)
     for m in METHODS:
-        v = method_mean_qrf.get(m, float("nan"))
-        vs = f"{v:.1f}" if np.isfinite(v) else "nan"
-        print(f"    {m:<9}: {vs} dB")
-    print()
-    print("  Latency (mean µs/call):")
-    for m in METHODS:
-        v = method_mean_us.get(m, float("nan"))
-        vs = f"{v:.1f}" if np.isfinite(v) else "nan"
-        print(f"    {m:<9}: {vs} µs")
-    print()
-    print("  Floor compliance (fraction of seeds above fs/N, avg across N):")
-    for m in METHODS:
-        v = method_mean_floor.get(m, float("nan"))
-        vs = f"{v:.2f}" if np.isfinite(v) else "nan"
-        print(f"    {m:<9}: {vs}")
+        print(_fmt_row(
+            m,
+            method_mean_qrf.get(m, float("nan")),
+            method_mean_us.get(m, float("nan")),
+            method_mean_floor.get(m, float("nan")),
+        ))
     print()
     print(f"  Recommended default for streaming SSD: {best_method}")
     print(f"  Reason: {reason}")
@@ -686,8 +726,8 @@ def _print_verdict(
 # ---------------------------------------------------------------------------
 
 # Consistent colours and display names for the three methods.
-_METHOD_COLOR = {"fwhm": "#2166ac", "moment": "#d6604d", "gaussian": "#4dac26"}
-_METHOD_LABEL = {"fwhm": "FWHM", "moment": "Moment", "gaussian": "Gaussian+Jac"}
+_METHOD_COLOR = {"baseline": "#888888", "fwhm": "#2166ac", "moment": "#d6604d", "gaussian": "#4dac26"}
+_METHOD_LABEL = {"baseline": "Baseline (GT)", "fwhm": "FWHM", "moment": "Moment", "gaussian": "Gaussian+Jac"}
 
 
 def _fig_save(fig: plt.Figure, path: Path) -> None:

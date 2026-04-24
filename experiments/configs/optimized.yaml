@@ -17,7 +17,7 @@ streaming:
 engine:
   name: ssd_optimized
   spectral_method: fwhm
-  nmse_threshold: 0.02
+  nmse_threshold: 0.01
   max_iter: 20
 
 matcher:

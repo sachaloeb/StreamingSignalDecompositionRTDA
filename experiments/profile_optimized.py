@@ -98,8 +98,8 @@ def _run_pipeline_instrumented(
         return r
     engine._decompose_trajectory = timed_svd  # type: ignore[assignment]
 
-    # Wrap eigentriple selection
-    orig_sel = SSD._select_eigentriples  # type: ignore[attr-defined]
+    # Wrap eigentriple selection (use engine's own method to capture overrides)
+    orig_sel = engine._select_eigentriples  # type: ignore[attr-defined]
     def timed_sel(*a, **kw):  # noqa: ANN002
         t0 = time.perf_counter()
         r = orig_sel(*a, **kw)
@@ -116,19 +116,34 @@ def _run_pipeline_instrumented(
         return r
     engine._reconstruct_component = timed_recon  # type: ignore[assignment]
 
-    t_decompose = 0.0
+    window_decomp_times: list[float] = []
+    window_bw_times: list[float] = []
+    window_svd_times: list[float] = []
+    window_sel_times: list[float] = []
+    window_recon_times: list[float] = []
+
     t_total_start = time.perf_counter()
-    n_windows = 0
 
     for sample_idx in range(N):
         window = wm.push(float(signal[sample_idx]))
         if window is None:
             continue
 
+        # Snapshot sub-timing list lengths before this window's fit()
+        bw_before = len(bw_times)
+        svd_before = len(svd_times)
+        sel_before = len(select_times)
+        recon_before = len(recon_times)
+
         t0 = time.perf_counter()
         components = engine.fit(window)
         t1 = time.perf_counter()
-        t_decompose += t1 - t0
+
+        window_decomp_times.append(t1 - t0)
+        window_bw_times.append(sum(bw_times[bw_before:]))
+        window_svd_times.append(sum(svd_times[svd_before:]))
+        window_sel_times.append(sum(select_times[sel_before:]))
+        window_recon_times.append(sum(recon_times[recon_before:]))
 
         components_no_res = components[:-1]
         matching = dict(
@@ -136,24 +151,44 @@ def _run_pipeline_instrumented(
         )
         window_start = sample_idx - wm.window_len + 1
         store.update(window_start, components_no_res, matching, wm.overlap)
-        n_windows += 1
 
     t_total = time.perf_counter() - t_total_start
 
+    def _stats(vals: list[float]) -> dict[str, float]:
+        a = np.array(vals)
+        return {
+            "total": float(a.sum()),
+            "mean": float(a.mean()),
+            "std": float(a.std()),
+            "min": float(a.min()),
+            "max": float(a.max()),
+            "p95": float(np.percentile(a, 95)),
+        }
+
+    decomp_stats = _stats(window_decomp_times)
+    other_per_win = [
+        max(0.0, d - bw - sv - sl - rc)
+        for d, bw, sv, sl, rc in zip(
+            window_decomp_times, window_bw_times, window_svd_times,
+            window_sel_times, window_recon_times,
+        )
+    ]
+
     return {
-        "n_windows": n_windows,
-        "decomposition_s": t_decompose,
+        "n_windows": len(window_decomp_times),
+        "decomposition_s": decomp_stats["total"],
         "total_s": t_total,
-        "bandwidth_s": sum(bw_times),
-        "svd_s": sum(svd_times),
-        "eigentriple_sel_s": sum(select_times),
-        "reconstruction_s": sum(recon_times),
-        "other_decomp_s": max(
-            0.0,
-            t_decompose
-            - sum(bw_times) - sum(svd_times)
-            - sum(select_times) - sum(recon_times),
-        ),
+        "decomp_per_window": decomp_stats,
+        "bandwidth_s": sum(window_bw_times),
+        "bandwidth_per_window": _stats(window_bw_times),
+        "svd_s": sum(window_svd_times),
+        "svd_per_window": _stats(window_svd_times),
+        "eigentriple_sel_s": sum(window_sel_times),
+        "eigentriple_per_window": _stats(window_sel_times),
+        "reconstruction_s": sum(window_recon_times),
+        "reconstruction_per_window": _stats(window_recon_times),
+        "other_decomp_s": sum(other_per_win),
+        "other_per_window": _stats(other_per_win),
     }
 
 
@@ -196,7 +231,7 @@ def main() -> None:
     N = 10000
     fs = 1000.0
     signal = chirp_plus_sinusoid(
-        N=N, f_sin=50.0, f_start=10.0, f_end=150.0, fs=fs,
+        N=N, f_sin=50.0, f_start=10.0, f_end=150.0, fs=fs, snr_db=5.0,
     )
 
     configs: list[tuple[str, SSD]] = [
@@ -209,7 +244,7 @@ def main() -> None:
     lines: list[str] = []
     lines.append("=" * 75)
     lines.append("OPTIMIZED SSD — PROFILING COMPARISON")
-    lines.append(f"Signal: chirp_plus_sinusoid, N={N}, fs={fs}")
+    lines.append(f"Signal: chirp_plus_sinusoid, N={N}, fs={fs}, SNR=5 dB")
     lines.append(f"Pipeline: window_len=300, stride=150, max_components=10")
     lines.append("=" * 75)
 
@@ -219,14 +254,24 @@ def main() -> None:
         lines.append(f"Engine: {label}")
         lines.append("-" * 75)
 
-        result = _run_pipeline_instrumented(signal, engine)
+        result = _run_pipeline_instrumented(signal, engine, window_len=3000, stride=1500)
         n_win = result["n_windows"]
         decomp = result["decomposition_s"]
         total = result["total_s"]
 
+        pw = result["decomp_per_window"]
+        budget_ms = 1500 / fs * 1000  # stride / fs in ms
+
         lines.append(f"  Windows processed      : {n_win}")
         lines.append(f"  Decomposition time     : {decomp:.4f} s")
         lines.append(f"  Total pipeline time    : {total:.4f} s")
+        lines.append(f"  Real-time budget/window: {budget_ms:.1f} ms  (stride={150}/fs={fs:.0f})")
+        lines.append(f"")
+        lines.append(f"  Per-window decomposition (ms):")
+        lines.append(f"    mean ± std : {pw['mean']*1e3:6.2f} ± {pw['std']*1e3:.2f}")
+        lines.append(f"    min / max  : {pw['min']*1e3:6.2f} / {pw['max']*1e3:.2f}")
+        lines.append(f"    p95        : {pw['p95']*1e3:6.2f}  ({'OK' if pw['p95']*1e3 < budget_ms else 'OVER BUDGET'})")
+        lines.append(f"")
 
         if decomp > 0:
             bw_pct = 100 * result["bandwidth_s"] / decomp
@@ -237,12 +282,21 @@ def main() -> None:
         else:
             bw_pct = svd_pct = sel_pct = rec_pct = oth_pct = 0.0
 
-        lines.append(f"  Decomposition breakdown:")
-        lines.append(f"    Bandwidth estimation : {result['bandwidth_s']:.4f} s  ({bw_pct:.1f}%)")
-        lines.append(f"    SVD                  : {result['svd_s']:.4f} s  ({svd_pct:.1f}%)")
-        lines.append(f"    Eigentriple selection : {result['eigentriple_sel_s']:.4f} s  ({sel_pct:.1f}%)")
-        lines.append(f"    Reconstruction       : {result['reconstruction_s']:.4f} s  ({rec_pct:.1f}%)")
-        lines.append(f"    Other                : {result['other_decomp_s']:.4f} s  ({oth_pct:.1f}%)")
+        def _pw_line(label: str, key: str, pct: float) -> str:
+            s = result[key]
+            return (
+                f"    {label:<22}: "
+                f"mean={s['mean']*1e3:5.2f} ms  "
+                f"p95={s['p95']*1e3:5.2f} ms  "
+                f"({pct:.1f}% of decomp)"
+            )
+
+        lines.append(f"  Decomposition breakdown (per-window mean, p95):")
+        lines.append(_pw_line("Bandwidth estimation", "bandwidth_per_window", bw_pct))
+        lines.append(_pw_line("SVD", "svd_per_window", svd_pct))
+        lines.append(_pw_line("Eigentriple selection", "eigentriple_per_window", sel_pct))
+        lines.append(_pw_line("Reconstruction", "reconstruction_per_window", rec_pct))
+        lines.append(_pw_line("Other", "other_per_window", oth_pct))
 
         # Re-create engine for memory measurement (since instrumentation
         # modifies the instance).

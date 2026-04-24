@@ -153,6 +153,42 @@ class OptimizedSSD(SSD):
 
         return r
 
+    @staticmethod
+    def _select_eigentriples(
+        U: np.ndarray,
+        S: np.ndarray,
+        f_max: float,
+        delta_f: float,
+        fs: float,
+        N: int,
+    ) -> list[int]:
+        n_fft = max(N, 512)
+        n_et = min(U.shape[1], len(S))
+        freqs_k = np.fft.rfftfreq(n_fft, d=1.0 / fs)
+
+        # Compute FFT magnitudes for all eigentriples at once
+        mags = np.abs(np.fft.rfft(U[:, :n_et], n=n_fft, axis=0))  # (n_fft//2+1, n_et)
+
+        # Dominant frequency of each eigentriple
+        f_doms = freqs_k[np.argmax(mags, axis=0)]  # (n_et,)
+
+        lo = f_max - delta_f
+        hi = f_max + delta_f
+        selected: list[int] = [
+            int(k) for k in range(n_et)
+            if lo <= f_doms[k] <= hi
+        ]
+
+        # Ensure the eigentriple with max energy at f_max is included
+        # (MATLAB lines 135-147)
+        idx_fmax = int(np.argmin(np.abs(freqs_k - f_max)))
+        energy_at_fmax = mags[idx_fmax, :n_et]
+        max_et_at_fmax = int(np.argmax(energy_at_fmax))
+        if max_et_at_fmax not in selected and len(selected) > 0:
+            selected.insert(0, max_et_at_fmax)
+
+        return selected
+
     # ------------------------------------------------------------------
     # Method 1: FWHM bandwidth estimation
     # ------------------------------------------------------------------
