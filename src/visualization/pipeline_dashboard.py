@@ -14,7 +14,7 @@ from matplotlib.gridspec import GridSpec
 
 def plot_pipeline_dashboard(
     signal: np.ndarray,
-    components: list[np.ndarray],
+    components: list[np.ndarray] | None,
     trajectory_store: object,
     metrics_csv_path: str,
     fs: float = 1.0,
@@ -26,8 +26,8 @@ def plot_pipeline_dashboard(
     ----------
     signal : np.ndarray
         Original input signal.
-    components : list[np.ndarray]
-        Extracted SSD components (excluding residual).
+    components : list[np.ndarray] or None
+        Unused; kept for backward compatibility.
     trajectory_store : TrajectoryStore
         Instance with ``get_all()`` and ``get(i)`` methods.
     metrics_csv_path : str
@@ -40,10 +40,12 @@ def plot_pipeline_dashboard(
     Notes
     -----
     The figure uses a ``GridSpec`` with four row groups:
-    original signal, stacked components, trajectory overlay,
+    original signal, stacked streaming components, trajectory overlay,
     and twin-axis QRF / matching-confidence plot.
     """
-    r = len(components)
+    trajs = trajectory_store.get_all()
+    sorted_keys = sorted(trajs.keys())
+    r = len(sorted_keys)
     height_ratios = [2] + [2] * max(r, 1) + [2, 2]
     n_rows = len(height_ratios)
 
@@ -61,12 +63,13 @@ def plot_pipeline_dashboard(
     ax0.set_ylabel("Amplitude")
     ax0.set_title("Original Signal")
 
-    for i, comp in enumerate(components):
+    for i, k in enumerate(sorted_keys):
+        arr = trajectory_store.get(k)
+        t_k = np.arange(len(arr)) / fs
         ax = fig.add_subplot(gs[1 + i], sharex=ax0)
-        tc = np.arange(len(comp)) / fs
-        ax.plot(tc, comp, color=cmap(i % 10), linewidth=0.8)
+        ax.plot(t_k, arr, color=cmap(k % 10), linewidth=0.8)
         ax.set_ylabel("Amplitude")
-        ax.set_title(f"Component {i + 1}")
+        ax.set_title(f"Component {k + 1}")
 
     row_traj = 1 + max(r, 1)
     ax_traj = fig.add_subplot(gs[row_traj], sharex=ax0)
@@ -74,8 +77,7 @@ def plot_pipeline_dashboard(
         t_sig, signal, color="lightgrey", alpha=0.25,
         label="Signal",
     )
-    trajs = trajectory_store.get_all()
-    for k in sorted(trajs.keys()):
+    for k in sorted_keys:
         arr = trajectory_store.get(k)
         t_k = np.arange(len(arr)) / fs
         ax_traj.plot(

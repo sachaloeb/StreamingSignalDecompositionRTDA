@@ -253,19 +253,19 @@ def main() -> None:
         lines.append("-" * 75)
         lines.append(f"Engine: {label}")
         lines.append("-" * 75)
-
-        result = _run_pipeline_instrumented(signal, engine, window_len=3000, stride=1500)
+        stride=2
+        result = _run_pipeline_instrumented(signal, engine, window_len=32, stride=stride)
         n_win = result["n_windows"]
         decomp = result["decomposition_s"]
         total = result["total_s"]
 
         pw = result["decomp_per_window"]
-        budget_ms = 1500 / fs * 1000  # stride / fs in ms
+        budget_ms = stride / fs * 1000  # stride / fs in ms
 
         lines.append(f"  Windows processed      : {n_win}")
         lines.append(f"  Decomposition time     : {decomp:.4f} s")
         lines.append(f"  Total pipeline time    : {total:.4f} s")
-        lines.append(f"  Real-time budget/window: {budget_ms:.1f} ms  (stride={150}/fs={fs:.0f})")
+        lines.append(f"  Real-time budget/window: {budget_ms:.1f} ms  (stride={stride}/fs={fs:.0f})")
         lines.append(f"")
         lines.append(f"  Per-window decomposition (ms):")
         lines.append(f"    mean ± std : {pw['mean']*1e3:6.2f} ± {pw['std']*1e3:.2f}")
