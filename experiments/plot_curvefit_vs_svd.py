@@ -48,8 +48,8 @@ def _run_instrumented(
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
     ssd = SSD(fs=fs)
     matcher = ComponentMatcher(
-        distance="hybrid", freq_weight=0.5, fs=fs, lookback=10,
-        max_cost=0.6, max_trajectories=max_components,
+        distance="d_freq", freq_weight=1.0, fs=fs, lookback=10,
+        max_cost=0.1, max_trajectories=max_components,
     )
     store = TrajectoryStore(max_components=max_components, max_len=N)
 

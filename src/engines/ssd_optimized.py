@@ -14,15 +14,34 @@ Optimizations
    explicit Jacobian halves the number of ``curve_fit`` iterations.
 4. **δf caching** — bandwidth is estimated once and reused for both
    polish passes, halving the number of estimation calls.
+
+Failure modes
+-------------
+**Moment estimator unreliable below N=256.**
+When the window length N is below ``min_window_length_for_moment``
+(default 256), the PSD frequency resolution ``df = fs / N`` is too coarse
+for the second-central-moment estimator to produce a reliable bandwidth
+estimate: empirically, ``above_floor_frac = 0.0`` at N ∈ {32, 64, 128}
+(see ``results/bandwidth_eval/level3_sparse_psd.csv``).  In this regime
+the moment estimator returns a value below the spectral resolution floor,
+which causes the eigentriple selection window to collapse to zero width.
+As a guard, :meth:`_extract_component_polished` automatically substitutes
+the FWHM estimator and emits a ``warnings.warn(...)`` once per process
+when ``spectral_method="moment"`` and ``N < min_window_length_for_moment``.
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 
 from src.engines.ssd import SSD
+
+# Sentinel to emit the moment guard warning only once per process.
+_MOMENT_GUARD_WARNED: bool = False
 
 
 class OptimizedSSD(SSD):
@@ -48,7 +67,17 @@ class OptimizedSSD(SSD):
         NMSE stopping criterion.  Default 0.01.
     max_iter : int, optional
         Maximum extraction iterations.  Default 20.
+
+    Class attributes
+    ----------------
+    min_window_length_for_moment : int
+        Minimum window length (in samples) for which the moment estimator
+        is considered reliable.  Below this threshold the FWHM estimator
+        is substituted automatically.  Default 256.  Configurable at the
+        class level: ``OptimizedSSD.min_window_length_for_moment = 512``.
     """
+
+    min_window_length_for_moment: int = 256
 
     def __init__(
         self,
@@ -112,7 +141,20 @@ class OptimizedSSD(SSD):
         if self.spectral_method == "fwhm":
             delta_f = self._estimate_bandwidth_fwhm(psd, freqs)
         elif self.spectral_method == "moment":
-            delta_f = self._estimate_bandwidth_moment(psd, freqs)
+            if N < self.min_window_length_for_moment:
+                global _MOMENT_GUARD_WARNED
+                if not _MOMENT_GUARD_WARNED:
+                    warnings.warn(
+                        f"moment estimator unreliable below N=256 "
+                        f"(got N={N}); substituting FWHM estimator. "
+                        "See results/bandwidth_eval/level3_sparse_psd.csv.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    _MOMENT_GUARD_WARNED = True
+                delta_f = self._estimate_bandwidth_fwhm(psd, freqs)
+            else:
+                delta_f = self._estimate_bandwidth_moment(psd, freqs)
         elif self.spectral_method == "gaussian":
             delta_f = self._fit_gaussian_with_jacobian(psd, freqs)
         else:

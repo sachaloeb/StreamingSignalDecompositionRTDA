@@ -5,8 +5,20 @@ and matching confidence over successive analysis windows.
 
 Metric temporal scopes:
 - **intra-window**: qrf — no history required.
-- **cross-window**: singular_value_drift, energy_continuity — need t-1.
+- **cross-window**: singular_value_drift, energy_continuity,
+  energy_continuity_norm — need t-1.
 - **global aggregate**: freq_drift_aggregate — post-hoc over full run.
+
+Notes on energy_continuity_norm
+--------------------------------
+Formula: abs(E_k - E_{k-1}) / (E_k + E_{k-1} + eps), eps = 1e-12.
+Bounded in [0, 1].  Value 0 = no energy change; value 1 = one component
+has near-zero energy relative to the other.  This is a normalized,
+interpretable replacement for the raw ``energy_continuity`` which
+produces values in the 10^5 range on outlier windows (e.g., window 6
+= 173541 in results/baseline/metrics.csv) due to lack of normalization.
+The legacy ``energy_continuity`` is preserved for backward compatibility
+with existing CSVs.
 """
 
 from __future__ import annotations
@@ -96,6 +108,11 @@ def energy_continuity(
 ) -> float:
     """Sum of squared energy differences between matched components.
 
+    .. deprecated::
+        Raw, unnormalized metric.  Preserved for backward compatibility
+        with existing CSVs (e.g. results/baseline/metrics.csv).
+        Use :func:`energy_continuity_norm` for a bounded [0, 1] metric.
+
     Parameters
     ----------
     components_curr : list of np.ndarray
@@ -142,6 +159,67 @@ def energy_continuity(
         )
         total += (e_curr - e_prev) ** 2
     return total
+
+
+def energy_continuity_norm(
+    components_curr: list[np.ndarray],
+    components_prev: list[np.ndarray] | None,
+    matching: dict[int, int | None],
+    eps: float = 1e-12,
+) -> float:
+    """Mean normalized energy change between matched components.
+
+    Formula: mean_k( |E_k(t) - E_{k-1}| / (E_k(t) + E_{k-1} + eps) )
+
+    Bounded in [0, 1].  Value 0 = no energy change across all matched
+    pairs; value approaching 1 = one component has near-zero energy
+    relative to its match.  ``eps = 1e-12`` prevents division by zero
+    when both energies are effectively zero.
+
+    Parameters
+    ----------
+    components_curr : list of np.ndarray
+        Extracted components from the current window.
+    components_prev : list of np.ndarray or None
+        Extracted components from the previous window.
+        Pass ``None`` at t=0.
+    matching : dict[int, int | None]
+        Maps curr_index -> prev_index.  ``None`` values mean
+        unmatched (skipped).
+    eps : float, optional
+        Denominator guard.  Default 1e-12.
+
+    Returns
+    -------
+    float
+        Mean normalized absolute energy change over matched pairs.
+        Returns ``np.nan`` when *components_prev* is ``None``.
+        Returns 0.0 when matching is empty or all unmatched.
+
+    Notes
+    -----
+    E_k(t) = dot(g_k, g_k) (L2 energy of component k at t).
+    Cross-window metric.  First computable at window index 1.
+    """
+    if components_prev is None:
+        return float("nan")
+    values: list[float] = []
+    for curr_i, prev_j in matching.items():
+        if prev_j is None:
+            continue
+        if (curr_i >= len(components_curr)
+                or prev_j >= len(components_prev)):
+            continue
+        e_curr = float(
+            np.dot(components_curr[curr_i], components_curr[curr_i])
+        )
+        e_prev = float(
+            np.dot(components_prev[prev_j], components_prev[prev_j])
+        )
+        values.append(abs(e_curr - e_prev) / (e_curr + e_prev + eps))
+    if not values:
+        return 0.0
+    return float(np.mean(values))
 
 
 def singular_value_drift(

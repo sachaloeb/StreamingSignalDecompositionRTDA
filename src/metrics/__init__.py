@@ -4,6 +4,7 @@ from src.metrics.similarity import d_corr, d_freq, subspace_angle, w_correlation
 from src.metrics.stability import (
     dominant_frequency,
     energy_continuity,
+    energy_continuity_norm,
     freq_drift_aggregate,
     frequency_drift,
     matching_confidence,
@@ -19,6 +20,7 @@ __all__ = [
     "w_correlation",
     "dominant_frequency",
     "energy_continuity",
+    "energy_continuity_norm",
     "freq_drift_aggregate",
     "frequency_drift",
     "matching_confidence",

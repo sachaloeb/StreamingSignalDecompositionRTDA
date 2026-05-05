@@ -36,6 +36,7 @@ from src.engines import build_trajectory_matrix, get_engine, svd_decompose
 from src.metrics.stability import (
     dominant_frequency,
     energy_continuity,
+    energy_continuity_norm,
     freq_drift_aggregate,
     matching_confidence,
     qrf,
@@ -177,6 +178,9 @@ def run(
         ec_val = energy_continuity(
             components_no_res, prev_components, prev_window_matching,
         )
+        ec_norm_val = energy_continuity_norm(
+            components_no_res, prev_components, prev_window_matching,
+        )
 
         if prev_components is not None and prev_window_matching:
             cost = matcher.build_cost_matrix(
@@ -200,6 +204,7 @@ def run(
             "qrf": qrf_val,
             "singular_value_drift": svd_drift,
             "energy_continuity": ec_val,
+            "energy_continuity_norm": ec_norm_val,
             "matching_confidence": mc_val,
         }
         row.update(fmax_row)

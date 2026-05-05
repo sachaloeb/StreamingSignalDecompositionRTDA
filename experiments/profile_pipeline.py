@@ -49,8 +49,8 @@ def _run_pipeline(
         engine_kwargs = {**engine_kwargs, "stride": stride}
     engine = get_engine(engine_name, fs=fs, **engine_kwargs)
     matcher = ComponentMatcher(
-        distance="d_corr", fs=fs, lookback=10,
-        max_cost=0.6, max_trajectories=max_components,
+        distance="d_freq",freq_weight=1.0, fs=fs, lookback=10,
+        max_cost=0.1, max_trajectories=max_components,
     )
     store = TrajectoryStore(max_components=max_components, max_len=N)
 

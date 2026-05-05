@@ -43,8 +43,8 @@ def _run_pipeline_instrumented(
     N = len(signal)
     wm = WindowManager(window_len=window_len, stride=stride, fs=fs)
     matcher = ComponentMatcher(
-        distance="hybrid", freq_weight=0.5, fs=fs, lookback=10,
-        max_cost=0.6, max_trajectories=max_components,
+        distance="d_freq", freq_weight=1.0, fs=fs, lookback=10,
+        max_cost=0.1, max_trajectories=max_components,
     )
     store = TrajectoryStore(max_components=max_components, max_len=N)
 
@@ -199,10 +199,10 @@ def _measure_peak_memory(
 ) -> float:
     """Measure peak memory in MiB."""
     N = len(signal)
-    wm = WindowManager(window_len=300, stride=150, fs=1000.0)
+    wm = WindowManager(window_len=200, stride=150, fs=10000.0)
     matcher = ComponentMatcher(
-        distance="d_corr", fs=1000.0, lookback=10,
-        max_cost=0.6, max_trajectories=10,
+        distance="d_freq", freq_weight=1.0, fs=10000.0, lookback=10,
+        max_cost=0.1, max_trajectories=10,
     )
     store = TrajectoryStore(max_components=10, max_len=N)
 
@@ -228,10 +228,13 @@ def main() -> None:
     out_dir = ROOT / "results" / "profiling"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    N = 10000
-    fs = 1000.0
+    N = 60000
+    fs = 10000.0
+    stride = 150
+    win_len = 200
+    snr_db = 5.0
     signal = chirp_plus_sinusoid(
-        N=N, f_sin=50.0, f_start=10.0, f_end=150.0, fs=fs, snr_db=5.0,
+        N=N, f_sin=50.0, f_start=10.0, f_end=150.0, fs=fs, snr_db=snr_db,
     )
 
     configs: list[tuple[str, SSD]] = [
@@ -244,8 +247,8 @@ def main() -> None:
     lines: list[str] = []
     lines.append("=" * 75)
     lines.append("OPTIMIZED SSD — PROFILING COMPARISON")
-    lines.append(f"Signal: chirp_plus_sinusoid, N={N}, fs={fs}, SNR=5 dB")
-    lines.append(f"Pipeline: window_len=300, stride=150, max_components=10")
+    lines.append(f"Signal: chirp_plus_sinusoid, N={N}, fs={fs}, SNR={snr_db} dB")
+    lines.append(f"Pipeline: window_len={win_len}, stride={stride}, max_components=10")
     lines.append("=" * 75)
 
     for label, engine in configs:
@@ -253,8 +256,7 @@ def main() -> None:
         lines.append("-" * 75)
         lines.append(f"Engine: {label}")
         lines.append("-" * 75)
-        stride=2
-        result = _run_pipeline_instrumented(signal, engine, window_len=32, stride=stride)
+        result = _run_pipeline_instrumented(signal, engine, window_len=win_len, stride=stride, fs=fs)
         n_win = result["n_windows"]
         decomp = result["decomposition_s"]
         total = result["total_s"]

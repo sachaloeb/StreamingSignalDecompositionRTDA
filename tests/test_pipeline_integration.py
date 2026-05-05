@@ -38,8 +38,8 @@ class TestFullStreamingRun:
         wm = WindowManager(window_len=300, stride=30, fs=1000.0)
         ssd = SSD(fs=1000.0)
         matcher = ComponentMatcher(
-            distance="d_corr", fs=1000.0,
-            lookback=3, max_cost=0.5, max_trajectories=4,
+            distance="d_freq", freq_weight=1.0, fs=1000.0,
+            lookback=3, max_cost=0.1, max_trajectories=4,
         )
         store = TrajectoryStore(
             max_components=4, max_len=len(signal),
