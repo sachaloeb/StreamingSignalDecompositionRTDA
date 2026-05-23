@@ -136,21 +136,27 @@ class TestIncrementalSSD:
         trajs = store.get_all()
         assert len(trajs) > 0, "No trajectories stored"
 
-    def test_cold_start_fallback(self) -> None:
-        """When signal changes drastically, should fall back to cold start."""
-        fs = 500.0
-        engine = IncrementalSSD(fs=fs, subspace_threshold=0.01)
+    def test_dimension_change_triggers_cold_start(self) -> None:
+        """Drastically different signal causes M to change, triggering cold start.
 
-        # First signal: low frequency
+        Strobach's orthogonal iteration seeds Q_r from a full SVD whenever the
+        trajectory matrix dimensions (M, K) differ from the cached shape.  A
+        large frequency shift changes M = int(1.2 * fs / f_max) enough to
+        force a dimension mismatch and hence a cold start.
+        """
+        fs = 500.0
+        engine = IncrementalSSD(fs=fs)
+
+        # First signal: low frequency → large M
         t1 = np.arange(500) / fs
         x1 = np.sin(2 * np.pi * 5 * t1)
-        comps1 = engine.fit(x1)
+        engine.fit(x1)
 
-        # Second signal: completely different (high frequency)
+        # Second signal: high frequency → small M (dimension mismatch → cold start)
         x2 = np.sin(2 * np.pi * 200 * t1)
         comps2 = engine.fit(x2)
 
-        # Should still produce valid output
+        # Should still produce valid output after the cold start
         assert len(comps2) >= 2
         recon2 = sum(comps2[:-1])
         n = nmse(x2 - recon2, x2)
