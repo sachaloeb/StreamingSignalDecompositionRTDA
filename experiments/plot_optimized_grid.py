@@ -44,8 +44,10 @@ ENGINE_COLORS = {
     "ssd_optimized_moment":                 "#d62728",
     "ssd_optimized_moment_substituted_fwhm": "#d62728",  # same as moment
     "ssd_optimized_gaussian":               "#2ca02c",
-    "ssd_incremental":                      "#ff7f0e",
+    "ssd_rsvd":                             "#ff7f0e",
     "ssd_rank1":                            "#9467bd",
+    "ssd_shsvd":                            "#8c564b",
+    "ssd_grouse":                           "#e377c2",
 }
 ENGINE_LABELS = {
     "ssd":                                  "Baseline SSD",
@@ -53,8 +55,10 @@ ENGINE_LABELS = {
     "ssd_optimized_moment":                 "OptimizedSSD-moment",
     "ssd_optimized_moment_substituted_fwhm": "OptimizedSSD-moment (→FWHM)",
     "ssd_optimized_gaussian":               "OptimizedSSD-gaussian+jac",
-    "ssd_incremental":                      "IncrementalSSD",
+    "ssd_rsvd":                             "RsvdSSD",
     "ssd_rank1":                            "RankOneIncrementalSSD",
+    "ssd_shsvd":                            "SHSVDIncrementalSSD",
+    "ssd_grouse":                           "GrouseIncrementalSSD",
 }
 
 

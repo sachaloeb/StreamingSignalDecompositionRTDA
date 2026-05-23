@@ -42,11 +42,13 @@ from src.streaming.window_manager import WindowManager
 # (engine_label, registry_key, extra_kwargs)
 # ---------------------------------------------------------------------------
 _ENGINE_CONFIGS = [
-    ("ssd",                   "ssd",           {}),
-    ("ssd_optimized_fwhm",    "ssd_optimized", {"spectral_method": "fwhm"}),
-    ("ssd_optimized_moment",  "ssd_optimized", {"spectral_method": "moment"}),
-    ("ssd_incremental",       "ssd_incremental", {}),
-    ("ssd_rank1",             "ssd_rank1",     {}),
+    ("ssd",                  "ssd",           {}),
+    ("ssd_optimized_fwhm",   "ssd_optimized", {"spectral_method": "fwhm"}),
+    ("ssd_optimized_moment", "ssd_optimized", {"spectral_method": "moment"}),
+    ("ssd_rsvd",             "ssd_rsvd",      {}),
+    ("ssd_rank1",            "ssd_rank1",     {}),
+    ("ssd_shsvd",            "ssd_shsvd",     {}),
+    ("ssd_grouse",           "ssd_grouse",    {}),
 ]
 
 WINDOW_LENGTHS = [100, 200, 400, 800, 1600, 3200, 6400]

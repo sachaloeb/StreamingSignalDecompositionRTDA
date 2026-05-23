@@ -140,12 +140,19 @@ def main() -> None:
     )
 
     configs = [
-        ("ssd", {}),
-        ("ssd_incremental", {"use_rsvd": True}),
-        ("ssd_incremental", {}),
-        ("ssd_rank1", {}),
+        ("ssd",        {}),
+        ("ssd_rsvd",   {}),
+        ("ssd_rank1",  {}),
+        ("ssd_shsvd",  {}),
+        ("ssd_grouse", {}),
     ]
-    labels = ["Baseline SSD", "rSVD-SSD (IncrementalSSD)", "IncrementalSSD (full SVD)", "Rank-1 IncrementalSSD"]
+    labels = [
+        "Baseline SSD",
+        "RsvdSSD",
+        "RankOneIncrementalSSD",
+        "SHSVDIncrementalSSD",
+        "GrouseIncrementalSSD",
+    ]
 
     lines: list[str] = []
     lines.append("=" * 70)

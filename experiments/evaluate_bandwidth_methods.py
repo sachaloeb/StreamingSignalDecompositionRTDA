@@ -40,6 +40,7 @@ from experiments.synthetic.generators import (
     chirp_plus_sinusoid,
     rossler,
     component_onset,
+    n_sinusoids,
 )
 
 
@@ -300,9 +301,22 @@ def _build_signal_configs(fs: float, N: int, seed: int) -> list[dict]:
         ),
     })
 
+    # n_sinusoids: clean + full SNR sweep
+    _n_sin_freqs = [20.0, 50.0, 80.0, 120.0, 200.0]
+    configs.append({
+        "name": "n_sinusoids",
+        "snr_db": None,
+        "signal": n_sinusoids(N=N, frequencies=_n_sin_freqs, fs=fs, seed=seed),
+    })
+    for snr in snr_levels:
+        configs.append({
+            "name": "n_sinusoids",
+            "snr_db": snr,
+            "signal": n_sinusoids(N=N, frequencies=_n_sin_freqs, fs=fs, seed=seed, snr_db=snr),
+        })
+
     # SNR sweep for two_sinusoids and chirp_plus_sinusoid
     for snr in snr_levels:
-        rng = np.random.default_rng(seed + int(snr * 10))
         sig_ts = two_sinusoids(N=N, f1=50.0, f2=120.0, fs=fs, seed=seed, snr_db=snr)
         configs.append({"name": "two_sinusoids", "snr_db": snr, "signal": sig_ts})
         sig_cp = chirp_plus_sinusoid(

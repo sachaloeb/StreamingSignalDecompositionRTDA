@@ -216,10 +216,11 @@ def main() -> None:
 
     window_lens = [100, 200, 400, 800, 1600, 3200, 6400]
     engine_configs = [
-        ("ssd", "SSD", {}),
-        ("ssd_incremental", "IncrementalSSD", {}),
-        ("ssd_incremental", "rSVD-IncrementalSSD", {"use_rsvd": True}),
-        ("ssd_rank1", "RankOneIncrementalSSD", {}),
+        ("ssd",        "SSD",                  {}),
+        ("ssd_rsvd",   "RsvdSSD",              {}),
+        ("ssd_rank1",  "RankOneIncrementalSSD", {}),
+        ("ssd_shsvd",  "SHSVDIncrementalSSD",  {}),
+        ("ssd_grouse", "GrouseIncrementalSSD", {}),
     ]
 
     results: list[dict[str, object]] = []

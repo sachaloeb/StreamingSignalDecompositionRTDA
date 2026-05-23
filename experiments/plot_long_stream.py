@@ -155,6 +155,35 @@ def plot_active_trajectories(datasets: dict[str, list[dict]], out_dir: Path) -> 
     _save_plot(fig, out_dir, "active_trajectories_over_time")
 
 
+def plot_latency_hist(datasets: dict[str, list[dict]], out_dir: Path) -> None:
+    """Latency distribution histograms with symlog x-scale, one panel per engine."""
+    labels = list(datasets.keys())
+    fig, axes = plt.subplots(len(labels), 1, figsize=(8, 3 * len(labels)), sharex=True)
+    if len(labels) == 1:
+        axes = [axes]
+
+    for ax, label in zip(axes, labels):
+        rows = datasets[label]
+        color = ENGINE_COLORS.get(label, "#333333")
+        times = np.array([r["time_ms"] for r in rows if np.isfinite(r["time_ms"])])
+        p95 = float(np.percentile(times, 95)) if len(times) > 0 else float("nan")
+        ax.hist(times, bins=60, color=color, edgecolor="white", linewidth=0.4,
+                alpha=0.85, label=label)
+        if np.isfinite(p95):
+            ax.axvline(p95, color="blue", linestyle="--", linewidth=1.2,
+                       label=f"p95 = {p95:.1f} ms")
+        ax.axvline(RT_BUDGET_MS, color="red", linestyle="--", linewidth=1.2,
+                   label=f"RT budget = {RT_BUDGET_MS:.0f} ms")
+        ax.set_xscale("symlog", linthresh=1)
+        ax.set_ylabel("Count")
+        ax.legend(fontsize=8, loc="upper right")
+
+    axes[0].set_title("Per-window latency distribution (long stream)")
+    axes[-1].set_xlabel("Per-window time (ms, symlog scale)")
+    fig.tight_layout()
+    _save_plot(fig, out_dir, "latency_hist")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot long-stream stress test results")
     parser.add_argument("--baseline",  default="results/long_stream/baseline")
@@ -185,6 +214,7 @@ def main() -> None:
 
     plot_latency_over_time(datasets, out_dir)
     plot_latency_cdf(datasets, out_dir)
+    plot_latency_hist(datasets, out_dir)
     plot_memory_over_time(datasets, out_dir)
     plot_active_trajectories(datasets, out_dir)
 

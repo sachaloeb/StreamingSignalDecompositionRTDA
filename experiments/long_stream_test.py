@@ -75,8 +75,10 @@ def _resolve_engine(engine_label: str) -> tuple[str, dict]:
         "ssd_optimized_fwhm":   ("ssd_optimized", {"spectral_method": "fwhm"}),
         "ssd_optimized_moment": ("ssd_optimized", {"spectral_method": "moment"}),
         "ssd_optimized_gaussian":("ssd_optimized",{"spectral_method": "gaussian"}),
-        "ssd_incremental":      ("ssd_incremental", {}),
+        "ssd_rsvd":             ("ssd_rsvd",      {}),
         "ssd_rank1":            ("ssd_rank1",     {}),
+        "ssd_shsvd":            ("ssd_shsvd",     {}),
+        "ssd_grouse":           ("ssd_grouse",    {}),
     }
     if engine_label not in mapping:
         raise ValueError(
@@ -97,7 +99,8 @@ def main() -> None:
         type=str,
         default="ssd_optimized_fwhm",
         choices=["ssd", "ssd_optimized_fwhm", "ssd_optimized_moment",
-                 "ssd_optimized_gaussian", "ssd_incremental", "ssd_rank1"],
+                 "ssd_optimized_gaussian", "ssd_rsvd", "ssd_rank1",
+                 "ssd_shsvd", "ssd_grouse"],
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", type=str, default="results/long_stream")
