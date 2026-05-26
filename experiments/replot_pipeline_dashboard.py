@@ -29,8 +29,8 @@ except OSError:
     pass
 
 # Default paths
-DEFAULT_TRAJ = ROOT / "results" / "demo_run" / "experiment_run" / "trajectories.npz"
-DEFAULT_METRICS = ROOT / "results" / "demo_run" / "metrics.csv"
+DEFAULT_TRAJ = ROOT / "results" / "demo_run" / "baseline" / "trajectories.npz"
+DEFAULT_METRICS = ROOT / "results" / "demo_run" / "baseline" / "metrics.csv"
 DEFAULT_OUTDIR = ROOT / "results" / "demo_run"
 FS = 1000.0  # sampling frequency used in the demo run
 
