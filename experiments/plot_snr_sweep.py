@@ -83,7 +83,7 @@ def plot_qrf_panel(rows: list[dict], out_dir: Path) -> None:
     snrs = sorted(set(r["snr_db"] for r in rows))
 
     n_panels = len(signals)
-    fig, axes = plt.subplots(1, n_panels, figsize=(4 * n_panels, 5), sharey=False)
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 7), sharey=False)
     if n_panels == 1:
         axes = [axes]
 
