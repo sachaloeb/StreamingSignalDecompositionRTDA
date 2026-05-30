@@ -216,11 +216,12 @@ def main() -> None:
 
     window_lens = [100, 200, 400, 800, 1600, 3200, 6400]
     engine_configs = [
-        ("ssd",        "SSD",                  {}),
-        ("ssd_rsvd",   "RsvdSSD",              {}),
-        ("ssd_rank1",  "RankOneIncrementalSSD", {}),
-        ("ssd_shsvd",  "SHSVDIncrementalSSD",  {}),
-        ("ssd_grouse", "GrouseIncrementalSSD", {}),
+        ("ssd",          "SSD",                  {}),
+        ("ssd_rsvd",     "RsvdSSD",              {}),
+        ("ssd_rank1",    "RankOneIncrementalSSD", {}),
+        ("ssd_shsvd",    "SHSVDIncrementalSSD",  {}),
+        ("ssd_grouse",   "GrouseIncrementalSSD", {}),
+        ("ssd_optimized","FWHM",                 {"spectral_method": "fwhm"}),
     ]
 
     results: list[dict[str, object]] = []

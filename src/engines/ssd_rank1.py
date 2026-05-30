@@ -4,21 +4,30 @@ Uses Brand's (2003) rank-1 SVD update to slide the Hankel trajectory
 matrix incrementally across windows, avoiding a full SVD rebuild each
 stride.  Only the first SSD iteration (dominant component) benefits from
 the rank-1-maintained factors; residual iterations fall back to the
-standard wrapped-trajectory + full-SVD path inherited from SSD.
+standard Hankel + full-SVD path.
+
+Trajectory matrix convention
+-----------------------------
+This engine uses the **standard (non-wrapped) Hankel** matrix throughout —
+including residual iterations — to stay consistent with the Brand (2003)
+/ USSA (Saeed & Alty 2020) formulation.  This differs from the base
+:class:`~src.engines.ssd.SSD`, which uses a wrapped (circular) Hankel.
+Both ``_build_trajectory_matrix`` and ``_reconstruct_component`` are
+overridden accordingly.
 
 Complexity per window (stride s, rank r, embedding M, window N):
-  - Cold start  : O(M² N)         — full SVD, same as SSD
-  - Warm slide  : O(s · r · N)    — s rank-1 updates, linear in N
-  - Residual iters: O((I-1)·M²·N) — inherited SSD path
+  - Cold start    : O(M² N)         — full SVD, same as SSD
+  - Warm slide    : O(s · r · N)    — s rank-1 updates, linear in N
+  - Residual iters: O((I-1)·M²·N)  — inherited full-SVD path
 
 References
 ----------
 Brand, M. (2003). Fast online SVD revisions for lightweight recommender
-systems. *Proc. SIAM International Conference on Data Mining*, 37–46.
+    systems. *Proc. SIAM International Conference on Data Mining*, 37–46.
 
 Saeed, M., & Alty, S. R. (2020). USSA: A unified singular spectrum
-analysis framework with application to real-time data.
-*Proc. IEEE ICASSP 2020*, 4837–4841.
+    analysis framework with application to real-time data.
+    *Proc. IEEE ICASSP 2020*, 4837–4841.
 """
 
 from __future__ import annotations
@@ -36,8 +45,14 @@ class RankOneIncrementalSSD(SSD):
     Each window the dominant-component trajectory matrix is updated via
     ``stride`` calls to :meth:`RankOneUpdater.slide_window` instead of
     being rebuilt from scratch.  Only the *first* SSD iteration uses the
-    rank-1-maintained factors; subsequent iterations (residual) use the
-    standard wrapped-trajectory path from the parent :class:`SSD`.
+    rank-1-maintained factors; subsequent (residual) iterations rebuild
+    the standard Hankel and run a full SVD.
+
+    The entire engine uses a **standard (non-wrapped) Hankel** matrix,
+    matching the Brand / USSA formulation.  This is enforced by
+    overriding :meth:`_build_trajectory_matrix` and
+    :meth:`_reconstruct_component` so that both iteration-0 and
+    residual iterations operate on the same matrix type.
 
     Parameters
     ----------
@@ -81,6 +96,54 @@ class RankOneIncrementalSSD(SSD):
         self._updater: RankOneUpdater | None = None
         self._prev_window: np.ndarray | None = None
         self._prev_M: int = 0
+
+    # ------------------------------------------------------------------
+    # Trajectory matrix overrides — standard (non-wrapped) Hankel
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_trajectory_matrix(x: np.ndarray, M: int) -> np.ndarray:
+        """Standard (non-wrapped) Hankel trajectory matrix.
+
+        Overrides the base SSD wrapped formulation to match the Brand
+        (2003) / USSA (Saeed & Alty 2020) convention used by the
+        rank-1 updater.  This ensures all SSD iterations — including
+        residual ones — operate on the same matrix type.
+
+        Parameters
+        ----------
+        x : np.ndarray
+            Signal of length N.
+        M : int
+            Embedding dimension (number of rows).
+
+        Returns
+        -------
+        np.ndarray
+            Shape (M, K) where K = N - M + 1.
+        """
+        return _build_hankel(x, M)
+
+    @staticmethod
+    def _reconstruct_component(X_sub: np.ndarray, N: int) -> np.ndarray:
+        """Standard diagonal averaging for the non-wrapped Hankel.
+
+        Overrides the base SSD wrapped reconstruction to match the
+        standard Hankel used by this engine.
+
+        Parameters
+        ----------
+        X_sub : np.ndarray
+            Rank-reduced trajectory matrix (M, K).
+        N : int
+            Original signal length.
+
+        Returns
+        -------
+        np.ndarray
+            Reconstructed component of length N.
+        """
+        return diagonal_averaging(X_sub)
 
     # ------------------------------------------------------------------
     # Override fit()
@@ -223,10 +286,31 @@ class RankOneIncrementalSSD(SSD):
         """Extract the dominant component using rank-1-maintained factors.
 
         Uses the Hankel-based (U, S, Vt) from the RankOneUpdater.
-        Reconstruction via standard diagonal averaging (Hankel formulation).
+        Reconstruction via standard diagonal averaging, consistent with
+        the non-wrapped Hankel used throughout this engine.
+
+        Parameters
+        ----------
+        residual : np.ndarray
+            Current residual signal.
+        N : int
+            Signal length.
+        M : int
+            Embedding dimension for the standard Hankel.
+        f_max : float
+            Dominant frequency in Hz.
+        freqs : np.ndarray
+            Welch frequency axis.
+        psd : np.ndarray
+            Welch PSD for Gaussian bandwidth estimation.
+
+        Returns
+        -------
+        np.ndarray
+            Extracted component of length N.
         """
-        U = self._updater.U   # (M, r)
-        S = self._updater.S   # (r,)
+        U = self._updater.U    # (M, r)
+        S = self._updater.S    # (r,)
         Vt = self._updater.Vt  # (r, K)  K = N - M + 1
 
         delta_f = self._fit_gaussian_model(psd, freqs)
@@ -240,8 +324,10 @@ class RankOneIncrementalSSD(SSD):
             if k < len(S) and k < Vt.shape[0]:
                 X_sub += S[k] * np.outer(U[:, k], Vt[k, :K])
 
+        # Reconstruct via standard diagonal averaging (non-wrapped).
         g = diagonal_averaging(X_sub)  # length = M + K - 1 = N
 
-        # Polish using parent's method (operates on wrapped trajectory)
+        # Polish using parent's method; _build_trajectory_matrix override
+        # ensures this also uses the standard Hankel internally.
         g = self._polish(g, residual, N)
         return g
